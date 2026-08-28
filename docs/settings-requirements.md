@@ -24,6 +24,7 @@ Provide a reusable, strongly typed settings system for .NET that can read from m
 - FR-11 Write protection awareness: Sources may be marked read-only/write-protected.
 - FR-12 Targeted write: Callers must be able to write a setting change to a specific source.
 - FR-13 Administrative write routing: Administrative callers must be able to choose machine-global output instead of user-local output.
+- FR-14 Optional change notification: Sources may optionally notify the library of external changes so settings can be reloaded while the host application is running.
 
 ## Source Model Requirements
 - SR-01 Source identity: Each source must have a stable identifier and human-readable name.
@@ -43,6 +44,13 @@ Provide a reusable, strongly typed settings system for .NET that can read from m
 - WR-02 Capability validation: Write API must validate target source is writable before persisting.
 - WR-03 No implicit cross-write: Writing to one source must not silently persist to other sources.
 - WR-04 Optional elevated workflows: The API should support host-driven privilege checks for protected sources.
+
+## Change Notification Requirements
+- CN-01 Opt-in behavior: Hot reload must be opt-in per source and per manager; a source that does not support or enable change notification must never trigger a reload.
+- CN-02 Validate before apply: A newly detected external change must be loaded and validated before it replaces the currently active settings.
+- CN-03 Reject unsafe changes: If validation fails, the currently active settings must remain unchanged, and the failure must be observable by the host (error message and/or log).
+- CN-04 Atomic apply: Applying a validated change must be an atomic swap of the active settings snapshot, with no consumer able to observe a partially updated state.
+- CN-05 Change visibility: Consumers must be able to observe that settings changed, through an event, `INotifyPropertyChanged`, or an equivalent mechanism.
 
 ## Extensibility Requirements
 - ER-01 Pluggable source contract: Provide an interface/abstraction to implement custom sources.
@@ -66,6 +74,8 @@ Provide a reusable, strongly typed settings system for .NET that can read from m
 - AC-07 Caller can explicitly write to machine-global source instead of user-local source.
 - AC-08 Adding a new setting field does not require redesign of source registration/resolution APIs.
 - AC-09 A policy setting can make a specific setting overridable for one user group while keeping it locked for another group.
+- AC-10 An external change to a watched source triggers a reload attempt, and an invalid candidate does not replace the currently active settings.
+- AC-11 A source that does not opt into change notification never triggers a reload, even if its underlying storage changes externally.
 
 ## Suggested Initial Domain Examples
 - EX-01 FontSize: user-local override allowed.
@@ -157,6 +167,102 @@ settingsManager.Save(s => s.SettingXY, "AES-256", SourceIds.Machine);
 ```
 
 `Save` resolves the `PropertyInfo` from the expression, validates the target source against the property's write constraints, and persists only to that source. A future optimization may add a source generator to emit per-property write methods (for example `SaveFontSize(value, sourceId)`), but this is deferred until the attribute-based model is proven, since it adds build-time complexity not required for v1.
+
+### Source Registration
+Sources are registered at the composition root, not inside the settings class. A settings class only references source ids by name via `SourceOrder`/`SourceOrderIf`; it must not construct or own source instances itself. This keeps the schema free of environment details (file paths, registry hives, per-tenant locations) and keeps sources swappable for tests without subclassing.
+
+```csharp
+public interface ISettingsSource
+{
+    string Id { get; }
+    bool CanRead { get; }
+    bool CanWrite { get; }
+}
+```
+
+```csharp
+public sealed class SettingsManagerBuilder<TSettings> where TSettings : SettingsBase, new()
+{
+    public SettingsManagerBuilder<TSettings> AddSource(string id, ISettingsSource source);
+    public SettingsManagerBuilder<TSettings> WithDefaultOrder(params string[] sourceIds);
+    public ISettingsManager<TSettings> Build();
+}
+```
+
+```csharp
+var manager = new SettingsManagerBuilder<AppSettings>()
+    .AddSource(SourceIds.User, new JsonFileSource(userConfigPath))
+    .AddSource(SourceIds.Machine, new JsonFileSource(machineConfigPath))
+    .AddSource(SourceIds.GroupPolicy, new RegistrySource(RegistryHive.LocalMachine, @"SOFTWARE\Policies\Contoso\App"))
+    .WithDefaultOrder(SourceIds.User, SourceIds.Machine, SourceIds.GroupPolicy)
+    .Build();
+```
+
+Multiple instances of the same source type with different paths are supported naturally, since `AddSource` maps an arbitrary id to any configured instance (for example two `JsonFileSource`s registered as `"UserJson"` and `"TeamJson"` with different paths).
+
+### Source Id Constants Convention
+Source ids appear both in attributes (which require compile-time constants) and in builder registration calls. Projects should define ids as `const string` fields rather than inline string literals, to avoid typos and keep renames refactor-safe:
+
+```csharp
+public static class SourceIds
+{
+    public const string User = "User";
+    public const string Machine = "Machine";
+    public const string GroupPolicy = "GroupPolicy";
+}
+```
+
+### Source Registration Validation Rule
+`Build()` must validate, at registration time and before any resolution occurs:
+- every source id referenced by any `SourceOrder` or `SourceOrderIf` attribute on `TSettings` has a matching registered source, failing fast with a clear exception otherwise,
+- no duplicate source ids are registered,
+- the dependency-cycle and condition-type checks defined above also run at this point, since this is the point at which all sources and attributes are known.
+
+### Change Notification And Hot Reload
+Hot reload is opt-in at two levels: a source must actively support and be configured to watch for external changes, and the manager must apply a validated candidate before it becomes the active settings snapshot. A source that does not implement change notification never triggers a reload.
+
+```csharp
+public interface IObservableSettingsSource : ISettingsSource
+{
+    event EventHandler SourceChanged;
+}
+```
+
+```csharp
+public delegate bool SettingsValidator<TSettings>(TSettings candidate, out string? error);
+```
+
+```csharp
+public sealed class SettingsManagerBuilder<TSettings> where TSettings : SettingsBase, new()
+{
+    public SettingsManagerBuilder<TSettings> AddSource(string id, ISettingsSource source, bool watchForChanges = false);
+    public SettingsManagerBuilder<TSettings> WithDefaultOrder(params string[] sourceIds);
+    public SettingsManagerBuilder<TSettings> WithValidator(SettingsValidator<TSettings> validator);
+    public ISettingsManager<TSettings> Build();
+}
+```
+
+```csharp
+public interface ISettingsManager<TSettings> where TSettings : SettingsBase, new()
+{
+    TSettings Current { get; }
+    TSettings Load();
+    void Save<TValue>(Expression<Func<TSettings, TValue>> property, TValue value, string sourceId);
+    event EventHandler<SettingsChangedEventArgs<TSettings>> SettingsChanged;
+    event EventHandler<SettingsReloadRejectedEventArgs> SettingsReloadRejected;
+}
+```
+
+Reload pipeline, triggered when a watched source raises `SourceChanged`:
+1. Debounce rapid successive change notifications from the same source (file system watchers commonly fire multiple events for one logical change).
+2. Refresh only the cached data for the source that changed; reuse cached data from unaffected sources.
+3. Re-run resolution across all sources to build a candidate `TSettings` snapshot.
+4. Run the registered validator against the candidate. If it returns `false`, raise `SettingsReloadRejected` with the validator's error, log it, and leave `Current` unchanged.
+5. If validation succeeds, atomically swap `Current` to the new snapshot (no consumer observes a torn/partial state) and raise `SettingsChanged` with the previous and new snapshots.
+
+Consumers observe changes through the `SettingsChanged` event on `ISettingsManager<TSettings>`. Hosts that prefer `INotifyPropertyChanged`-style binding can wrap `Current` in an adapter that diffs snapshots and raises `PropertyChanged` per changed property; this adapter is optional and layered on top of the event-based core rather than required of every settings class.
+
+
 
 ## Out Of Scope For Initial Version
 - OOS-01 UI for editing settings.
