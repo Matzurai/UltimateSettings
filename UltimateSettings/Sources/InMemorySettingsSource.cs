@@ -1,0 +1,58 @@
+namespace UltimateSettings.Sources;
+
+/// <summary>
+/// An in-memory <see cref="ISettingsSource"/> used to validate core resolution and write logic before
+/// implementing real sources such as JSON files or the registry.
+/// </summary>
+public sealed class InMemorySettingsSource : ISettingsSource
+{
+    private readonly Dictionary<string, object?> _values = new();
+
+    public InMemorySettingsSource(string id, bool canWrite = true, bool canRead = true)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            throw new ArgumentException("Source id is required.", nameof(id));
+        }
+
+        Id = id;
+        CanWrite = canWrite;
+        CanRead = canRead;
+    }
+
+    public string Id { get; }
+
+    public bool CanRead { get; }
+
+    public bool CanWrite { get; }
+
+    public bool TryRead(string key, out object? value)
+    {
+        if (!CanRead)
+        {
+            value = null;
+            return false;
+        }
+
+        return _values.TryGetValue(key, out value);
+    }
+
+    public void Write(string key, object? value)
+    {
+        if (!CanWrite)
+        {
+            throw new InvalidOperationException($"Source '{Id}' is write-protected.");
+        }
+
+        _values[key] = value;
+    }
+
+    /// <summary>
+    /// Populates a value directly, bypassing the write-protection check, to simulate data that already
+    /// exists in the underlying storage before the settings manager starts.
+    /// </summary>
+    public void Seed(string key, object? value)
+    {
+        _values[key] = value;
+    }
+}
