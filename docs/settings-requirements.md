@@ -72,6 +72,92 @@ Provide a reusable, strongly typed settings system for .NET that can read from m
 - EX-02 AllowedEncryptionMethods: user-local override denied; policy or machine source wins.
 - EX-03 CanOverrideSettingXY: IT users may override the user-vs-system precedence for SettingXY, while HR users may not.
 
+## API Design
+
+### Settings Class Shape
+Settings are plain classes deriving from a shared base, with public properties and no embedded resolution logic. Precedence and override rules are declared entirely through attributes, so the ruleset is visible at a glance.
+
+`SourceOrder` may be placed on the class itself to set the default order for every property that has no property-level `SourceOrder`, mirroring how ASP.NET's `AuthorizeAttribute` can be set on a controller and overridden per endpoint.
+
+```csharp
+[SourceOrder("User", "Machine", "GroupPolicy")] // class-level default
+public class AppSettings : SettingsBase
+{
+    [SourceOrder("User", "Machine")] // property-level override of the class default
+    public int FontSize { get; set; } = 12;
+
+    [SourceOrder("Machine", "GroupPolicy")]
+    public string[] AllowedEncryptionMethods { get; set; } = Array.Empty<string>();
+
+    [SourceOrder("GroupPolicy", "Machine")] // "User" intentionally omitted, see Gate Property Rule
+    public bool CanOverrideSettingXY { get; set; }
+
+    [SourceOrder("GroupPolicy", "Machine")] // default: no user override
+    [SourceOrderIf(nameof(CanOverrideSettingXY), "User", "GroupPolicy", "Machine")]
+    public string SettingXY { get; set; } = string.Empty;
+}
+```
+
+Effective order precedence, most specific wins: property-level `SourceOrder` > class-level `SourceOrder` > library-wide default order.
+
+### Attribute Contracts
+
+```csharp
+[AttributeUsage(AttributeTargets.Class | AttributeTargets.Property)]
+public sealed class SourceOrderAttribute : Attribute
+{
+    public SourceOrderAttribute(params string[] sourceIds) => SourceIds = sourceIds;
+    public IReadOnlyList<string> SourceIds { get; }
+}
+
+[AttributeUsage(AttributeTargets.Property, AllowMultiple = true)]
+public sealed class SourceOrderIfAttribute : Attribute
+{
+    public SourceOrderIfAttribute(string conditionProperty, params string[] sourceIds)
+    {
+        ConditionProperty = conditionProperty;
+        SourceIds = sourceIds;
+    }
+
+    public string ConditionProperty { get; }
+    public IReadOnlyList<string> SourceIds { get; }
+}
+```
+
+- `SourceOrder` declares the precedence used when no conditional override applies.
+- `SourceOrderIf` declares an alternate precedence used when the named condition property currently resolves to `true`. Multiple `SourceOrderIf` attributes may stack on one property; they are evaluated top-to-bottom and the first true condition wins, otherwise the base `SourceOrder` applies.
+- The condition property is referenced via `nameof(...)`, keeping the reference refactor-safe at compile time.
+
+### Resolution Order Rule
+A property referenced by `SourceOrderIf` must be fully resolved before the dependent property is resolved, since the dependent property's effective precedence depends on it. At settings-type registration time, the library must:
+1. Build a dependency graph from all `SourceOrderIf` references.
+2. Topologically sort properties so condition properties resolve before dependents.
+3. Detect cycles and fail fast with a clear registration-time exception, rather than allowing runtime deadlock or infinite recursion.
+
+### Condition Type Rule
+A property referenced by `SourceOrderIf` must resolve to `bool` (or `bool?`, treated as `false` when null). This is validated by reflection at registration time; an invalid condition type must throw a clear, actionable exception before any resolution occurs.
+
+### Gate Property Rule
+A property used as a `SourceOrderIf` condition should generally exclude from its own `SourceOrder` the source it is meant to guard against (for example, omitting `"User"` from `CanOverrideSettingXY`'s own order). Otherwise a subject could grant itself the override by writing directly to the guarded source. This is a documented convention that setting authors must follow, not something the library can enforce automatically.
+
+### Type-Safe Targeted Writes
+Targeted writes use expression-tree property selectors instead of per-property generated methods or stringly-typed keys, keeping calls type-checked and refactor-safe without requiring source generation:
+
+```csharp
+public interface ISettingsManager<TSettings> where TSettings : SettingsBase, new()
+{
+    TSettings Load();
+    void Save<TValue>(Expression<Func<TSettings, TValue>> property, TValue value, string sourceId);
+}
+```
+
+```csharp
+settingsManager.Save(s => s.FontSize, 14, SourceIds.User);
+settingsManager.Save(s => s.SettingXY, "AES-256", SourceIds.Machine);
+```
+
+`Save` resolves the `PropertyInfo` from the expression, validates the target source against the property's write constraints, and persists only to that source. A future optimization may add a source generator to emit per-property write methods (for example `SaveFontSize(value, sourceId)`), but this is deferred until the attribute-based model is proven, since it adds build-time complexity not required for v1.
+
 ## Out Of Scope For Initial Version
 - OOS-01 UI for editing settings.
 - OOS-02 Remote secret-management integrations.
