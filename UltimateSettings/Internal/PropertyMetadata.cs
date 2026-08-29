@@ -10,9 +10,16 @@ internal sealed class PropertyMetadata
     public required PropertyInfo Property { get; init; }
 
     /// <summary>
-    /// Property-level or class-level source order. Null means the manager's default order applies.
+    /// Property-level source order, from <see cref="Attributes.SourceOrderAttribute"/> on the property itself.
+    /// Takes precedence over everything except a matching conditional order.
     /// </summary>
-    public IReadOnlyList<string>? BaseOrder { get; init; }
+    public IReadOnlyList<string>? PropertyOrder { get; init; }
+
+    /// <summary>
+    /// Class-level source order, from <see cref="Attributes.SourceOrderAttribute"/> on the settings type.
+    /// Used only as a last-resort fallback, below the manager's explicit default order.
+    /// </summary>
+    public IReadOnlyList<string>? ClassOrder { get; init; }
 
     public required IReadOnlyList<ConditionalOrder> ConditionalOrders { get; init; }
 }

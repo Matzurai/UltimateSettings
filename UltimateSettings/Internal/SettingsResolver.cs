@@ -35,6 +35,7 @@ internal static class SettingsResolver<TSettings>
         return instance;
     }
 
+    // Precedence: matching conditional order > property-level SourceOrder > manager's explicit default order > class-level SourceOrder.
     private static IReadOnlyList<string> ResolveEffectiveOrder(PropertyMetadata property, TSettings instance, IReadOnlyList<string> defaultOrder)
     {
         foreach (var conditionalOrder in property.ConditionalOrders)
@@ -46,6 +47,16 @@ internal static class SettingsResolver<TSettings>
             }
         }
 
-        return property.BaseOrder ?? defaultOrder;
+        if (property.PropertyOrder is not null)
+        {
+            return property.PropertyOrder;
+        }
+
+        if (defaultOrder.Count > 0)
+        {
+            return defaultOrder;
+        }
+
+        return property.ClassOrder ?? defaultOrder;
     }
 }

@@ -62,7 +62,8 @@ internal static class SettingsTypeMetadata<TSettings>
             metadataByProperty[property] = new PropertyMetadata
             {
                 Property = property,
-                BaseOrder = propertyOrder ?? classOrder,
+                PropertyOrder = propertyOrder,
+                ClassOrder = classOrder,
                 ConditionalOrders = conditionalOrders
             };
             dependencies[property] = propertyDependencies;
@@ -121,9 +122,17 @@ internal static class SettingsTypeMetadata<TSettings>
 
         foreach (var property in properties)
         {
-            if (property.BaseOrder is not null)
+            if (property.PropertyOrder is not null)
             {
-                foreach (var id in property.BaseOrder)
+                foreach (var id in property.PropertyOrder)
+                {
+                    ids.Add(id);
+                }
+            }
+
+            if (property.ClassOrder is not null)
+            {
+                foreach (var id in property.ClassOrder)
                 {
                     ids.Add(id);
                 }

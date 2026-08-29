@@ -43,6 +43,27 @@ public sealed class SettingsResolutionTests
     }
 
     [Fact]
+    public void ExplicitDefaultOrder_OverridesClassLevelOrder()
+    {
+        var user = new InMemorySettingsSource("User");
+        var machine = new InMemorySettingsSource("Machine");
+        var groupPolicy = new InMemorySettingsSource("GroupPolicy");
+
+        // Class-level order is "User", "Machine", but the explicit default order below puts Machine first.
+        machine.Seed(nameof(SampleSettings.FontSize), 16);
+        user.Seed(nameof(SampleSettings.FontSize), 20);
+
+        var manager = new SettingsManagerBuilder<SampleSettings>()
+            .AddSource("User", user)
+            .AddSource("Machine", machine)
+            .AddSource("GroupPolicy", groupPolicy)
+            .WithDefaultOrder("Machine", "User", "GroupPolicy")
+            .Build();
+
+        Assert.Equal(16, manager.Current.FontSize);
+    }
+
+    [Fact]
     public void PropertyLevelOrder_OverridesClassLevelOrder()
     {
         var user = new InMemorySettingsSource("User");
