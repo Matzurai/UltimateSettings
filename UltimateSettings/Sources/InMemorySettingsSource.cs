@@ -4,9 +4,11 @@ namespace UltimateSettings.Sources;
 /// An in-memory <see cref="ISettingsSource"/> used to validate core resolution and write logic before
 /// implementing real sources such as JSON files or the registry.
 /// </summary>
-public sealed class InMemorySettingsSource : ISettingsSource
+public sealed class InMemorySettingsSource : IObservableSettingsSource
 {
     private readonly Dictionary<string, object?> _values = new();
+
+    public event EventHandler? SourceChanged;
 
     public InMemorySettingsSource(string id, bool canWrite = true, bool canRead = true)
     {
@@ -27,6 +29,11 @@ public sealed class InMemorySettingsSource : ISettingsSource
     public bool CanWrite { get; }
 
     public bool TryRead(string key, out object? value)
+    {
+        return TryRead(key, typeof(object), out value);
+    }
+
+    public bool TryRead(string key, Type targetType, out object? value)
     {
         if (!CanRead)
         {
@@ -54,5 +61,13 @@ public sealed class InMemorySettingsSource : ISettingsSource
     public void Seed(string key, object? value)
     {
         _values[key] = value;
+    }
+
+    /// <summary>
+    /// Triggers the <see cref="SourceChanged"/> event to simulate an external change.
+    /// </summary>
+    public void TriggerSourceChanged()
+    {
+        SourceChanged?.Invoke(this, EventArgs.Empty);
     }
 }

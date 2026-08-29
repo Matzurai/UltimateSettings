@@ -16,6 +16,7 @@ internal static class SettingsResolver<TSettings>
         foreach (var property in SettingsTypeMetadata<TSettings>.ResolutionOrder)
         {
             var order = ResolveEffectiveOrder(property, instance, defaultOrder);
+            var targetType = property.Property.PropertyType;
 
             foreach (var sourceId in order)
             {
@@ -24,15 +25,50 @@ internal static class SettingsResolver<TSettings>
                     continue;
                 }
 
-                if (source.TryRead(property.Property.Name, out var value))
+                if (source.TryRead(property.Property.Name, targetType, out var value))
                 {
-                    property.Property.SetValue(instance, value);
+                    var coerced = CoerceValue(value, targetType);
+                    property.Property.SetValue(instance, coerced);
                     break;
                 }
             }
         }
 
         return instance;
+    }
+
+    private static object? CoerceValue(object? value, Type targetType)
+    {
+        if (value is null)
+        {
+            return null;
+        }
+
+        var underlyingType = Nullable.GetUnderlyingType(targetType) ?? targetType;
+
+        if (underlyingType.IsInstanceOfType(value))
+        {
+            return value;
+        }
+
+        if (value is System.Text.Json.JsonElement jsonElement)
+        {
+            return System.Text.Json.JsonSerializer.Deserialize(jsonElement, targetType);
+        }
+
+        if (underlyingType.IsEnum && value is string enumString)
+        {
+            return Enum.Parse(underlyingType, enumString, ignoreCase: true);
+        }
+
+        try
+        {
+            return Convert.ChangeType(value, underlyingType);
+        }
+        catch
+        {
+            return value;
+        }
     }
 
     // Precedence: matching conditional order > property-level SourceOrder > manager's explicit default order > class-level SourceOrder.

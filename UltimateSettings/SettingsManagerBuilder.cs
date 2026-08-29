@@ -11,9 +11,11 @@ public sealed class SettingsManagerBuilder<TSettings>
     where TSettings : SettingsBase, new()
 {
     private readonly Dictionary<string, ISettingsSource> _sources = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _watchedSourceIds = new(StringComparer.Ordinal);
     private IReadOnlyList<string> _defaultOrder = Array.Empty<string>();
+    private SettingsValidator<TSettings>? _validator;
 
-    public SettingsManagerBuilder<TSettings> AddSource(string id, ISettingsSource source)
+    public SettingsManagerBuilder<TSettings> AddSource(string id, ISettingsSource source, bool watchForChanges = false)
     {
         if (string.IsNullOrWhiteSpace(id))
         {
@@ -27,12 +29,28 @@ public sealed class SettingsManagerBuilder<TSettings>
             throw new InvalidOperationException($"A source with id '{id}' is already registered.");
         }
 
+        if (watchForChanges)
+        {
+            if (source is not IObservableSettingsSource)
+            {
+                throw new InvalidOperationException($"Source '{id}' does not implement IObservableSettingsSource and cannot be watched for changes.");
+            }
+
+            _watchedSourceIds.Add(id);
+        }
+
         return this;
     }
 
     public SettingsManagerBuilder<TSettings> WithDefaultOrder(params string[] sourceIds)
     {
         _defaultOrder = sourceIds;
+        return this;
+    }
+
+    public SettingsManagerBuilder<TSettings> WithValidator(SettingsValidator<TSettings> validator)
+    {
+        _validator = validator;
         return this;
     }
 
@@ -57,6 +75,6 @@ public sealed class SettingsManagerBuilder<TSettings>
             }
         }
 
-        return new SettingsManager<TSettings>(_sources, _defaultOrder);
+        return new SettingsManager<TSettings>(_sources, _defaultOrder, _watchedSourceIds, _validator);
     }
 }

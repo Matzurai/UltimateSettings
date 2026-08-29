@@ -13,5 +13,7 @@ public interface ISettingsSource
 
     bool TryRead(string key, out object? value);
 
+    bool TryRead(string key, Type targetType, out object? value);
+
     void Write(string key, object? value);
 }
