@@ -20,6 +20,21 @@ public sealed class SampleSettings : SettingsBase
     public string SettingXY { get; set; } = string.Empty;
 }
 
+
+[SourceOrder("User", "Machine")]
+public sealed class HierarchicalSettingsA : SettingsBase
+{
+    public HierarchicalSettingsB? B { get; set; }
+    public string? AValue { get; set; }
+}
+
+public sealed class HierarchicalSettingsB : SettingsBase
+{
+    [SourceOrder("Machine", "User")]
+    public string? BValue { get; set; }
+}
+
+
 public sealed class SettingsResolutionTests
 {
     [Fact]
@@ -205,6 +220,30 @@ public sealed class SettingsResolutionTests
 
         Assert.Throws<InvalidOperationException>(() => builder.Build());
     }
+
+    [Fact]
+    public void HierarchicalSettings_AreResolvedCorrectly()
+    {
+        var user = new InMemorySettingsSource("User");
+        var machine = new InMemorySettingsSource("Machine");
+
+        user.Seed(nameof(HierarchicalSettingsA.AValue), "user-a");
+        user.Seed(nameof(HierarchicalSettingsA.B), new HierarchicalSettingsB { BValue = "user-b" });
+        machine.Seed(nameof(HierarchicalSettingsA.AValue), "machine-a");
+        machine.Seed(nameof(HierarchicalSettingsA.B), new HierarchicalSettingsB { BValue = "machine-b" });
+
+        var manager = new SettingsManagerBuilder<HierarchicalSettingsA>()
+            .AddSource("User", user)
+            .AddSource("Machine", machine)
+            .WithDefaultOrder("User", "Machine")
+            .Build();
+
+        Assert.Equal("user-a", manager.Current.AValue);
+        Assert.NotNull(manager.Current.B);
+        Assert.Equal("machine-b", manager.Current.B.BValue);
+    }
+
+
 }
 
 public sealed class CyclicSettingsA : SettingsBase
