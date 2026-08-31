@@ -107,6 +107,48 @@ public sealed class JsonFileSource : IObservableSettingsSource, IDisposable
         }
     }
 
+    public bool TryNavigate(object container, string propertyName, out object? child)
+    {
+        if (container is JsonElement jsonElement
+            && jsonElement.ValueKind == JsonValueKind.Object
+            && jsonElement.TryGetProperty(propertyName, out var childElement))
+        {
+            child = childElement;
+            return true;
+        }
+
+        child = null;
+        return false;
+    }
+
+    public bool TryNavigateLeaf(object container, string propertyName, Type targetType, out object? value)
+    {
+        if (container is not JsonElement jsonElement
+            || jsonElement.ValueKind != JsonValueKind.Object
+            || !jsonElement.TryGetProperty(propertyName, out var childElement))
+        {
+            value = null;
+            return false;
+        }
+
+        if (targetType == typeof(object) || targetType == typeof(JsonElement))
+        {
+            value = childElement;
+            return true;
+        }
+
+        try
+        {
+            value = JsonSerializer.Deserialize(childElement, targetType, _options);
+            return true;
+        }
+        catch
+        {
+            value = null;
+            return false;
+        }
+    }
+
     public void Write(string key, object? value)
     {
         if (!CanWrite)

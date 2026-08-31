@@ -105,6 +105,54 @@ public sealed class XmlFileSource : IObservableSettingsSource, IDisposable
         }
     }
 
+    public bool TryNavigate(object container, string propertyName, out object? child)
+    {
+        if (container is not XElement xElement)
+        {
+            child = null;
+            return false;
+        }
+
+        var childElement = xElement.Elements().FirstOrDefault(e => string.Equals(e.Name.LocalName, propertyName, StringComparison.OrdinalIgnoreCase));
+        child = childElement;
+        return childElement is not null;
+    }
+
+    public bool TryNavigateLeaf(object container, string propertyName, Type targetType, out object? value)
+    {
+        if (container is not XElement xElement)
+        {
+            value = null;
+            return false;
+        }
+
+        var childElement = xElement.Elements().FirstOrDefault(e => string.Equals(e.Name.LocalName, propertyName, StringComparison.OrdinalIgnoreCase));
+        if (childElement is null)
+        {
+            value = null;
+            return false;
+        }
+
+        if (targetType == typeof(object) || targetType == typeof(XElement))
+        {
+            value = childElement;
+            return true;
+        }
+
+        try
+        {
+            var serializer = new XmlSerializer(targetType, new XmlRootAttribute(childElement.Name.LocalName));
+            using var reader = childElement.CreateReader();
+            value = serializer.Deserialize(reader);
+            return true;
+        }
+        catch
+        {
+            value = null;
+            return false;
+        }
+    }
+
     public void Write(string key, object? value)
     {
         if (!CanWrite)

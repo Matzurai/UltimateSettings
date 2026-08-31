@@ -1,7 +1,4 @@
 using System.Reflection;
-using System.Text.Json;
-using System.Xml.Linq;
-using System.Xml.Serialization;
 using UltimateSettings.Sources;
 
 namespace UltimateSettings.Internal;
@@ -100,8 +97,9 @@ internal static class SettingsResolver<TSettings>
     /// <summary>
     /// Reads the value for a (possibly nested) property path from a single source. For a top-level property
     /// this is a direct read. For a nested property, the top-level container is read as a raw blob from the
-    /// source, then navigated field by field using JSON or reflection, since sources only store values keyed
-    /// by the root property name.
+    /// source, then navigated field by field via the source's own <see cref="ISettingsSource.TryNavigate"/>
+    /// and <see cref="ISettingsSource.TryNavigateLeaf"/>, since sources only store values keyed by the root
+    /// property name and each source knows the shape of its own raw representation.
     /// </summary>
     private static bool TryReadPath(ISettingsSource source, IReadOnlyList<PropertyInfo> path, Type targetType, out object? value)
     {
@@ -118,114 +116,14 @@ internal static class SettingsResolver<TSettings>
 
         for (var i = 1; i < path.Count - 1; i++)
         {
-            if (!TryNavigate(current, path[i].Name, out current) || current is null)
+            if (!source.TryNavigate(current, path[i].Name, out current) || current is null)
             {
                 value = null;
                 return false;
             }
         }
 
-        return TryNavigateLeaf(current, path[^1].Name, targetType, out value);
-    }
-
-    private static bool TryNavigate(object current, string propertyName, out object? result)
-    {
-        if (current is JsonElement jsonElement)
-        {
-            if (jsonElement.ValueKind == JsonValueKind.Object && jsonElement.TryGetProperty(propertyName, out var child))
-            {
-                result = child;
-                return true;
-            }
-
-            result = null;
-            return false;
-        }
-
-        if (current is XElement xElement)
-        {
-            var childElement = xElement.Elements().FirstOrDefault(e => string.Equals(e.Name.LocalName, propertyName, StringComparison.OrdinalIgnoreCase));
-            result = childElement;
-            return childElement is not null;
-        }
-
-        var propertyInfo = current.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance);
-        if (propertyInfo is null)
-        {
-            result = null;
-            return false;
-        }
-
-        result = propertyInfo.GetValue(current);
-        return result is not null;
-    }
-
-    private static bool TryNavigateLeaf(object current, string propertyName, Type targetType, out object? value)
-    {
-        if (current is JsonElement jsonElement)
-        {
-            if (jsonElement.ValueKind != JsonValueKind.Object || !jsonElement.TryGetProperty(propertyName, out var child))
-            {
-                value = null;
-                return false;
-            }
-
-            if (targetType == typeof(object) || targetType == typeof(JsonElement))
-            {
-                value = child;
-                return true;
-            }
-
-            try
-            {
-                value = JsonSerializer.Deserialize(child, targetType);
-                return true;
-            }
-            catch
-            {
-                value = null;
-                return false;
-            }
-        }
-
-        if (current is XElement xElement)
-        {
-            var childElement = xElement.Elements().FirstOrDefault(e => string.Equals(e.Name.LocalName, propertyName, StringComparison.OrdinalIgnoreCase));
-            if (childElement is null)
-            {
-                value = null;
-                return false;
-            }
-
-            if (targetType == typeof(object) || targetType == typeof(XElement))
-            {
-                value = childElement;
-                return true;
-            }
-
-            try
-            {
-                var serializer = new XmlSerializer(targetType, new XmlRootAttribute(childElement.Name.LocalName));
-                using var reader = childElement.CreateReader();
-                value = serializer.Deserialize(reader);
-                return true;
-            }
-            catch
-            {
-                value = null;
-                return false;
-            }
-        }
-
-        var propertyInfo = current.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance);
-        if (propertyInfo is null)
-        {
-            value = null;
-            return false;
-        }
-
-        value = propertyInfo.GetValue(current);
-        return true;
+        return source.TryNavigateLeaf(current, path[^1].Name, targetType, out value);
     }
 
     private static object? CoerceValue(object? value, Type targetType)
@@ -240,18 +138,6 @@ internal static class SettingsResolver<TSettings>
         if (underlyingType.IsInstanceOfType(value))
         {
             return value;
-        }
-
-        if (value is System.Text.Json.JsonElement jsonElement)
-        {
-            return System.Text.Json.JsonSerializer.Deserialize(jsonElement, targetType);
-        }
-
-        if (value is XElement xElement)
-        {
-            var serializer = new XmlSerializer(targetType, new XmlRootAttribute(xElement.Name.LocalName));
-            using var reader = xElement.CreateReader();
-            return serializer.Deserialize(reader);
         }
 
         if (underlyingType.IsEnum && value is string enumString)
