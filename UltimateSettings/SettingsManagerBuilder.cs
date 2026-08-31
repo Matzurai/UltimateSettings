@@ -75,6 +75,11 @@ public sealed class SettingsManagerBuilder<TSettings>
             }
         }
 
+        foreach (var warning in SettingsTypeMetadataCache.GetArrayMergeWarnings(typeof(TSettings)))
+        {
+            System.Diagnostics.Trace.TraceWarning(warning);
+        }
+
         return new SettingsManager<TSettings>(_sources, _defaultOrder, _watchedSourceIds, _validator);
     }
 }

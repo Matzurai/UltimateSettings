@@ -1,6 +1,7 @@
 using UltimateSettings;
 using UltimateSettings.Attributes;
 using UltimateSettings.Sources;
+using System.Diagnostics;
 
 namespace UltimateSettings.Tests;
 
@@ -32,6 +33,108 @@ public sealed class HierarchicalSettingsB : SettingsBase
 {
     [SourceOrder("Machine", "User")]
     public string? BValue { get; set; }
+}
+
+public sealed class NestedClassOrderA : SettingsBase
+{
+    public NestedClassOrderB? B { get; set; }
+}
+
+[SourceOrder("Machine", "User")]
+public sealed class NestedClassOrderB : SettingsBase
+{
+    public string? Value { get; set; }
+}
+
+public sealed class ContainingPropertyOrderA : SettingsBase
+{
+    [SourceOrder("Machine", "User")]
+    public ContainingPropertyOrderB? B { get; set; }
+}
+
+public sealed class ContainingPropertyOrderB : SettingsBase
+{
+    public string? Value { get; set; }
+}
+
+public sealed class LeafPropertyOrderA : SettingsBase
+{
+    [SourceOrder("Machine", "User")]
+    public LeafPropertyOrderB? B { get; set; }
+}
+
+public sealed class LeafPropertyOrderB : SettingsBase
+{
+    [SourceOrder("User", "Machine")]
+    public string? Value { get; set; }
+}
+
+public sealed class NestedConditionalA : SettingsBase
+{
+    public NestedConditionalB? B { get; set; }
+}
+
+public sealed class NestedConditionalB : SettingsBase
+{
+    public bool CanOverride { get; set; }
+
+    [SourceOrder("Machine", "User")]
+    [SourceOrderIf(nameof(CanOverride), "User", "Machine")]
+    public string? Value { get; set; }
+}
+
+public sealed class DeepNestingA : SettingsBase
+{
+    public DeepNestingB? B { get; set; }
+}
+
+public sealed class DeepNestingB : SettingsBase
+{
+    public DeepNestingC? C { get; set; }
+}
+
+[SourceOrder("Machine", "User")]
+public sealed class DeepNestingC : SettingsBase
+{
+    public string? Value { get; set; }
+}
+
+public sealed class ArrayOfNestedSettingsA : SettingsBase
+{
+    public HierarchicalSettingsB[]? Items { get; set; }
+}
+
+public sealed class SuppressedArrayOfNestedSettingsA : SettingsBase
+{
+    [SuppressArrayMergeWarning]
+    public HierarchicalSettingsB[]? Items { get; set; }
+}
+
+/// <summary>Captures Trace warnings raised during a test so they can be asserted without polluting global listeners.</summary>
+internal sealed class CapturingTraceListener : TraceListener
+{
+    public List<string> Messages { get; } = new();
+
+    public override void Write(string? message) { }
+
+    public override void WriteLine(string? message)
+    {
+        if (message is not null)
+        {
+            Messages.Add(message);
+        }
+    }
+}
+
+public sealed class NestedMissingSourceA : SettingsBase
+{
+    public NestedMissingSourceB? B { get; set; }
+}
+
+[SourceOrder("DoesNotExist", "User")]
+public sealed class NestedMissingSourceB : SettingsBase
+{
+    public string? Value { get; set; }
 }
 
 
@@ -243,6 +346,202 @@ public sealed class SettingsResolutionTests
         Assert.Equal("machine-b", manager.Current.B.BValue);
     }
 
+    [Fact]
+    public void NestedClassOrder_IsUsed_WhenNoPropertyOrderOrDefaultOrder()
+    {
+        var user = new InMemorySettingsSource("User");
+        var machine = new InMemorySettingsSource("Machine");
+
+        user.Seed(nameof(NestedClassOrderA.B), new NestedClassOrderB { Value = "user-value" });
+        machine.Seed(nameof(NestedClassOrderA.B), new NestedClassOrderB { Value = "machine-value" });
+
+        var manager = new SettingsManagerBuilder<NestedClassOrderA>()
+            .AddSource("User", user)
+            .AddSource("Machine", machine)
+            .Build();
+
+        Assert.Equal("machine-value", manager.Current.B?.Value);
+    }
+
+    [Fact]
+    public void ContainingPropertyOrder_OverridesDefaultOrder_ForNestedField()
+    {
+        var user = new InMemorySettingsSource("User");
+        var machine = new InMemorySettingsSource("Machine");
+
+        user.Seed(nameof(ContainingPropertyOrderA.B), new ContainingPropertyOrderB { Value = "user-value" });
+        machine.Seed(nameof(ContainingPropertyOrderA.B), new ContainingPropertyOrderB { Value = "machine-value" });
+
+        var manager = new SettingsManagerBuilder<ContainingPropertyOrderA>()
+            .AddSource("User", user)
+            .AddSource("Machine", machine)
+            .WithDefaultOrder("User", "Machine")
+            .Build();
+
+        Assert.Equal("machine-value", manager.Current.B?.Value);
+    }
+
+    [Fact]
+    public void LeafPropertyOrder_OverridesContainingPropertyOrder_ForNestedField()
+    {
+        var user = new InMemorySettingsSource("User");
+        var machine = new InMemorySettingsSource("Machine");
+
+        user.Seed(nameof(LeafPropertyOrderA.B), new LeafPropertyOrderB { Value = "user-value" });
+        machine.Seed(nameof(LeafPropertyOrderA.B), new LeafPropertyOrderB { Value = "machine-value" });
+
+        var manager = new SettingsManagerBuilder<LeafPropertyOrderA>()
+            .AddSource("User", user)
+            .AddSource("Machine", machine)
+            .Build();
+
+        // B carries a Machine-first order, but Value's own order (User-first) wins for the leaf field.
+        Assert.Equal("user-value", manager.Current.B?.Value);
+    }
+
+    [Fact]
+    public void NestedConditionalOrder_UsesSiblingConditionWithinNestedType()
+    {
+        var user = new InMemorySettingsSource("User");
+        var machine = new InMemorySettingsSource("Machine");
+
+        user.Seed(nameof(NestedConditionalA.B), new NestedConditionalB { CanOverride = true, Value = "user-value" });
+        machine.Seed(nameof(NestedConditionalA.B), new NestedConditionalB { CanOverride = false, Value = "machine-value" });
+
+        var manager = new SettingsManagerBuilder<NestedConditionalA>()
+            .AddSource("User", user)
+            .AddSource("Machine", machine)
+            .WithDefaultOrder("User", "Machine")
+            .Build();
+
+        // CanOverride resolves to true from User (first in default order), so the SourceOrderIf override applies.
+        Assert.Equal("user-value", manager.Current.B?.Value);
+    }
+
+    [Fact]
+    public void DeeplyNestedSettings_AreResolvedAcrossMultipleLevels()
+    {
+        var user = new InMemorySettingsSource("User");
+        var machine = new InMemorySettingsSource("Machine");
+
+        user.Seed(nameof(DeepNestingA.B), new DeepNestingB { C = new DeepNestingC { Value = "user-value" } });
+        machine.Seed(nameof(DeepNestingA.B), new DeepNestingB { C = new DeepNestingC { Value = "machine-value" } });
+
+        var manager = new SettingsManagerBuilder<DeepNestingA>()
+            .AddSource("User", user)
+            .AddSource("Machine", machine)
+            .Build();
+
+        Assert.NotNull(manager.Current.B);
+        Assert.NotNull(manager.Current.B.C);
+        Assert.Equal("machine-value", manager.Current.B.C.Value);
+    }
+
+    [Fact]
+    public void ArrayOfNestedSettingsObjects_IsReplacedWholesale_NotMerged()
+    {
+        var user = new InMemorySettingsSource("User");
+        var machine = new InMemorySettingsSource("Machine");
+
+        var userItems = new[] { new HierarchicalSettingsB { BValue = "u1" }, new HierarchicalSettingsB { BValue = "u2" }, new HierarchicalSettingsB { BValue = "u3" } };
+        var machineItems = new[] { new HierarchicalSettingsB { BValue = "m1" } };
+
+        user.Seed(nameof(ArrayOfNestedSettingsA.Items), userItems);
+        machine.Seed(nameof(ArrayOfNestedSettingsA.Items), machineItems);
+
+        var manager = new SettingsManagerBuilder<ArrayOfNestedSettingsA>()
+            .AddSource("User", user)
+            .AddSource("Machine", machine)
+            .WithDefaultOrder("Machine", "User")
+            .Build();
+
+        // Arrays cannot be element-wise merged, so the whole array from the winning source is used as-is.
+        Assert.Same(machineItems, manager.Current.Items);
+    }
+
+    [Fact]
+    public void Build_WithCollectionOfNestedSettings_EmitsArrayMergeWarning()
+    {
+        var listener = new CapturingTraceListener();
+        Trace.Listeners.Add(listener);
+
+        try
+        {
+            new SettingsManagerBuilder<ArrayOfNestedSettingsA>()
+                .AddSource("User", new InMemorySettingsSource("User"))
+                .Build();
+        }
+        finally
+        {
+            Trace.Listeners.Remove(listener);
+        }
+
+        Assert.Contains(listener.Messages, m => m.Contains("Items") && m.Contains(nameof(HierarchicalSettingsB)));
+    }
+
+    [Fact]
+    public void Build_WithSuppressArrayMergeWarningAttribute_NoWarningEmitted()
+    {
+        var listener = new CapturingTraceListener();
+        Trace.Listeners.Add(listener);
+
+        try
+        {
+            new SettingsManagerBuilder<SuppressedArrayOfNestedSettingsA>()
+                .AddSource("User", new InMemorySettingsSource("User"))
+                .Build();
+        }
+        finally
+        {
+            Trace.Listeners.Remove(listener);
+        }
+
+        Assert.Empty(listener.Messages);
+    }
+
+    [Fact]
+    public void NestedField_FallsBackToNextSource_WhenMissingInHigherPrecedenceSource()
+    {
+        var user = new InMemorySettingsSource("User");
+        var machine = new InMemorySettingsSource("Machine");
+
+        machine.Seed(nameof(HierarchicalSettingsA.B), new HierarchicalSettingsB { BValue = "machine-b" });
+
+        var manager = new SettingsManagerBuilder<HierarchicalSettingsA>()
+            .AddSource("User", user)
+            .AddSource("Machine", machine)
+            .WithDefaultOrder("User", "Machine")
+            .Build();
+
+        Assert.NotNull(manager.Current.B);
+        Assert.Equal("machine-b", manager.Current.B.BValue);
+    }
+
+    [Fact]
+    public void NestedField_FallsBackToSchemaDefault_WhenMissingInAllSources()
+    {
+        var user = new InMemorySettingsSource("User");
+        var machine = new InMemorySettingsSource("Machine");
+
+        var manager = new SettingsManagerBuilder<HierarchicalSettingsA>()
+            .AddSource("User", user)
+            .AddSource("Machine", machine)
+            .WithDefaultOrder("User", "Machine")
+            .Build();
+
+        Assert.NotNull(manager.Current.B);
+        Assert.Null(manager.Current.B.BValue);
+    }
+
+    [Fact]
+    public void Build_WithMissingReferencedSource_InNestedType_Throws()
+    {
+        var builder = new SettingsManagerBuilder<NestedMissingSourceA>()
+            .AddSource("User", new InMemorySettingsSource("User"))
+            .WithDefaultOrder("User");
+
+        Assert.Throws<InvalidOperationException>(() => builder.Build());
+    }
 
 }
 
