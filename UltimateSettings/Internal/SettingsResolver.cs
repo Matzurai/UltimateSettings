@@ -1,5 +1,7 @@
 using System.Reflection;
 using System.Text.Json;
+using System.Xml.Linq;
+using System.Xml.Serialization;
 using UltimateSettings.Sources;
 
 namespace UltimateSettings.Internal;
@@ -140,6 +142,13 @@ internal static class SettingsResolver<TSettings>
             return false;
         }
 
+        if (current is XElement xElement)
+        {
+            var childElement = xElement.Elements().FirstOrDefault(e => string.Equals(e.Name.LocalName, propertyName, StringComparison.OrdinalIgnoreCase));
+            result = childElement;
+            return childElement is not null;
+        }
+
         var propertyInfo = current.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance);
         if (propertyInfo is null)
         {
@@ -179,6 +188,35 @@ internal static class SettingsResolver<TSettings>
             }
         }
 
+        if (current is XElement xElement)
+        {
+            var childElement = xElement.Elements().FirstOrDefault(e => string.Equals(e.Name.LocalName, propertyName, StringComparison.OrdinalIgnoreCase));
+            if (childElement is null)
+            {
+                value = null;
+                return false;
+            }
+
+            if (targetType == typeof(object) || targetType == typeof(XElement))
+            {
+                value = childElement;
+                return true;
+            }
+
+            try
+            {
+                var serializer = new XmlSerializer(targetType, new XmlRootAttribute(childElement.Name.LocalName));
+                using var reader = childElement.CreateReader();
+                value = serializer.Deserialize(reader);
+                return true;
+            }
+            catch
+            {
+                value = null;
+                return false;
+            }
+        }
+
         var propertyInfo = current.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance);
         if (propertyInfo is null)
         {
@@ -207,6 +245,13 @@ internal static class SettingsResolver<TSettings>
         if (value is System.Text.Json.JsonElement jsonElement)
         {
             return System.Text.Json.JsonSerializer.Deserialize(jsonElement, targetType);
+        }
+
+        if (value is XElement xElement)
+        {
+            var serializer = new XmlSerializer(targetType, new XmlRootAttribute(xElement.Name.LocalName));
+            using var reader = xElement.CreateReader();
+            return serializer.Deserialize(reader);
         }
 
         if (underlyingType.IsEnum && value is string enumString)

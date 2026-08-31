@@ -347,6 +347,38 @@ public sealed class SettingsResolutionTests
     }
 
     [Fact]
+    public void HierarchicalSettings_AreResolvedCorrectly_WithXmlFileSource()
+    {
+        var tempDirectory = Path.Combine(Path.GetTempPath(), "UltimateSettingsTests_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+
+        try
+        {
+            using var user = new XmlFileSource("User", Path.Combine(tempDirectory, "user.xml"));
+            using var machine = new XmlFileSource("Machine", Path.Combine(tempDirectory, "machine.xml"));
+
+            user.Write(nameof(HierarchicalSettingsA.AValue), "user-a");
+            user.Write(nameof(HierarchicalSettingsA.B), new HierarchicalSettingsB { BValue = "user-b" });
+            machine.Write(nameof(HierarchicalSettingsA.AValue), "machine-a");
+            machine.Write(nameof(HierarchicalSettingsA.B), new HierarchicalSettingsB { BValue = "machine-b" });
+
+            var manager = new SettingsManagerBuilder<HierarchicalSettingsA>()
+                .AddSource("User", user)
+                .AddSource("Machine", machine)
+                .WithDefaultOrder("User", "Machine")
+                .Build();
+
+            Assert.Equal("user-a", manager.Current.AValue);
+            Assert.NotNull(manager.Current.B);
+            Assert.Equal("machine-b", manager.Current.B.BValue);
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void NestedClassOrder_IsUsed_WhenNoPropertyOrderOrDefaultOrder()
     {
         var user = new InMemorySettingsSource("User");
