@@ -15,9 +15,12 @@ public sealed class JsonFileSource : IObservableSettingsSource, IDisposable
         WriteIndented = true
     };
 
+    private static readonly TimeSpan DebounceInterval = TimeSpan.FromMilliseconds(150);
+
     private readonly object _lock = new();
     private readonly JsonSerializerOptions _options;
     private readonly FileSystemWatcher? _watcher;
+    private Timer? _debounceTimer;
     private Dictionary<string, JsonElement>? _cache;
     private bool _isDisposed;
 
@@ -227,6 +230,12 @@ public sealed class JsonFileSource : IObservableSettingsSource, IDisposable
             _watcher.Renamed -= OnFileEvent;
             _watcher.Dispose();
         }
+
+        lock (_lock)
+        {
+            _debounceTimer?.Dispose();
+            _debounceTimer = null;
+        }
     }
 
     private Dictionary<string, JsonElement> EnsureCacheLoaded()
@@ -268,8 +277,28 @@ public sealed class JsonFileSource : IObservableSettingsSource, IDisposable
 
     private void OnFileEvent(object sender, FileSystemEventArgs e)
     {
+        // Coalesce bursts of duplicate watcher events (e.g. content + metadata writes) into one notification.
         lock (_lock)
         {
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            _debounceTimer ??= new Timer(OnDebounceElapsed, null, Timeout.Infinite, Timeout.Infinite);
+            _debounceTimer.Change(DebounceInterval, Timeout.InfiniteTimeSpan);
+        }
+    }
+
+    private void OnDebounceElapsed(object? state)
+    {
+        lock (_lock)
+        {
+            if (_isDisposed)
+            {
+                return;
+            }
+
             _cache = null;
         }
 

@@ -13,8 +13,11 @@ public sealed class XmlFileSource : IObservableSettingsSource, IDisposable
 {
     private const string RootElementName = "Settings";
 
+    private static readonly TimeSpan DebounceInterval = TimeSpan.FromMilliseconds(150);
+
     private readonly object _lock = new();
     private readonly FileSystemWatcher? _watcher;
+    private Timer? _debounceTimer;
     private Dictionary<string, XElement>? _cache;
     private bool _isDisposed;
 
@@ -239,6 +242,12 @@ public sealed class XmlFileSource : IObservableSettingsSource, IDisposable
             _watcher.Renamed -= OnFileEvent;
             _watcher.Dispose();
         }
+
+        lock (_lock)
+        {
+            _debounceTimer?.Dispose();
+            _debounceTimer = null;
+        }
     }
 
     private Dictionary<string, XElement> EnsureCacheLoaded()
@@ -275,8 +284,28 @@ public sealed class XmlFileSource : IObservableSettingsSource, IDisposable
 
     private void OnFileEvent(object sender, FileSystemEventArgs e)
     {
+        // Coalesce bursts of duplicate watcher events (e.g. content + metadata writes) into one notification.
         lock (_lock)
         {
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            _debounceTimer ??= new Timer(OnDebounceElapsed, null, Timeout.Infinite, Timeout.Infinite);
+            _debounceTimer.Change(DebounceInterval, Timeout.InfiniteTimeSpan);
+        }
+    }
+
+    private void OnDebounceElapsed(object? state)
+    {
+        lock (_lock)
+        {
+            if (_isDisposed)
+            {
+                return;
+            }
+
             _cache = null;
         }
 
