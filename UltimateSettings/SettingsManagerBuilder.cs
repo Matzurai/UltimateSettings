@@ -15,7 +15,7 @@ public sealed class SettingsManagerBuilder<TSettings>
     private IReadOnlyList<string> _defaultOrder = Array.Empty<string>();
     private SettingsValidator<TSettings>? _validator;
 
-    public SettingsManagerBuilder<TSettings> AddSource(string id, ISettingsSource source, bool watchForChanges = false)
+    public SettingsManagerBuilder<TSettings> AddSource(string id, ISettingsSource source)
     {
         if (string.IsNullOrWhiteSpace(id))
         {
@@ -29,13 +29,8 @@ public sealed class SettingsManagerBuilder<TSettings>
             throw new InvalidOperationException($"A source with id '{id}' is already registered.");
         }
 
-        if (watchForChanges)
+        if (source is IObservableSettingsSource)
         {
-            if (source is not IObservableSettingsSource)
-            {
-                throw new InvalidOperationException($"Source '{id}' does not implement IObservableSettingsSource and cannot be watched for changes.");
-            }
-
             _watchedSourceIds.Add(id);
         }
 

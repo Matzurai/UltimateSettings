@@ -19,7 +19,7 @@ public sealed class HotReloadAndValidationTests
         userSource.Seed(nameof(ValidatableSettings.FontSize), 12);
 
         using var manager = new SettingsManagerBuilder<ValidatableSettings>()
-            .AddSource("User", userSource, watchForChanges: true)
+            .AddSource("User", userSource)
             .WithDefaultOrder("User")
             .Build();
 
@@ -42,7 +42,7 @@ public sealed class HotReloadAndValidationTests
         userSource.Seed(nameof(ValidatableSettings.FontSize), 14);
 
         using var manager = new SettingsManagerBuilder<ValidatableSettings>()
-            .AddSource("User", userSource, watchForChanges: true)
+            .AddSource("User", userSource)
             .WithDefaultOrder("User")
             .WithValidator((ValidatableSettings candidate, out string? error) =>
             {
@@ -95,38 +95,4 @@ public sealed class HotReloadAndValidationTests
         Assert.Contains("Font size must be positive", ex.Message);
     }
 
-    [Fact]
-    public void AddSource_Throws_WhenWatchForChangesTrueOnNonObservableSource()
-    {
-        var nonObservableSource = new NonObservableDummySource("Dummy");
-
-        var builder = new SettingsManagerBuilder<ValidatableSettings>();
-
-        Assert.Throws<InvalidOperationException>(() => builder.AddSource("Dummy", nonObservableSource, watchForChanges: true));
-    }
-
-    private sealed class NonObservableDummySource : ISettingsSource
-    {
-        public NonObservableDummySource(string id) => Id = id;
-
-        public string Id { get; }
-
-        public bool CanRead => true;
-
-        public bool CanWrite => false;
-
-        public bool TryRead(string key, out object? value)
-        {
-            value = null;
-            return false;
-        }
-
-        public bool TryRead(string key, Type targetType, out object? value)
-        {
-            value = null;
-            return false;
-        }
-
-        public void Write(string key, object? value) => throw new NotSupportedException();
-    }
 }
