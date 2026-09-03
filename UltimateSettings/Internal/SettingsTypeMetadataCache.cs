@@ -68,6 +68,12 @@ internal static class SettingsTypeMetadataCache
 
         foreach (var property in properties)
         {
+            var isInitOnly = property.SetMethod?.ReturnParameter.GetRequiredCustomModifiers().Contains(typeof(System.Runtime.CompilerServices.IsExternalInit));
+            if(isInitOnly != true)
+            {
+                throw new InvalidOperationException(
+                    $"'{type.Name}.{property.Name}' is not an init-only property. SettingsBase-derived types must declare properties with an init accessor to prevent accidental writes to the in-memory snapshot.");
+            }
             var propertyOrder = property.GetCustomAttribute<SourceOrderAttribute>()?.SourceIds;
             var conditionalOrders = new List<ConditionalOrder>();
             var propertyDependencies = new List<PropertyInfo>();
