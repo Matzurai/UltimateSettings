@@ -120,6 +120,7 @@ public sealed class ExampleSettings : SettingsBase
     public string valueA { get; init; } = "Default";
     public MyAtomicSettingsObject ObjectA { get; init; } = new();
     public MySubcattegorySettingsObject Subcategory { get; init; } = new();
+    public Dictionary<string, MySubcattegorySettingsObject> SubcategoryArray { get; init; } = [];
 }
 
 public sealed class MyAtomicSettingsObject

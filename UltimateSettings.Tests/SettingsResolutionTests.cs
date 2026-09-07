@@ -384,6 +384,38 @@ public sealed class SettingsResolutionTests
     }
 
     [Fact]
+    public void ResolutionInfo_ExplainsWinningAndLosingSourcesAndConditionalOrder()
+    {
+        var user = new InMemorySettingsSource("User");
+        var machine = new InMemorySettingsSource("Machine");
+        var groupPolicy = new InMemorySettingsSource("GroupPolicy");
+        user.Seed(nameof(SampleSettings.FontSize), 20);
+        machine.Seed(nameof(SampleSettings.FontSize), 18);
+        groupPolicy.Seed(nameof(SampleSettings.SettingXY), "policy-value");
+
+        using var manager = new SettingsManagerBuilder<SampleSettings>()
+            .AddSource("User", user)
+            .AddSource("Machine", machine)
+            .AddSource("GroupPolicy", groupPolicy)
+            .WithDefaultOrder("User", "Machine", "GroupPolicy")
+            .Build();
+
+        var fontSize = manager.GetResolutionInfo(s => s.FontSize);
+        var setting = manager.GetResolutionInfo(s => s.SettingXY);
+        var dump = manager.GetResolutionDebugDump();
+
+        Assert.Equal("User", fontSize.WinningSourceId);
+        Assert.Contains(fontSize.Sources, source => source.SourceId == "Machine" && source.HasValue);
+        Assert.Equal("GroupPolicy", setting.WinningSourceId);
+        Assert.Contains(setting.ConditionEvaluations, condition =>
+            condition.ConditionProperty == nameof(SampleSettings.CanOverrideSettingXY)
+            && !condition.Applied);
+        Assert.Contains("Property: FontSize", dump);
+        Assert.Contains("Winning source: User", dump);
+        Assert.Contains("Machine", dump);
+    }
+
+    [Fact]
     public void Edit_WithoutWritableTo_AllowsEveryRegisteredWritableSource()
     {
         var user = new InMemorySettingsSource("User");

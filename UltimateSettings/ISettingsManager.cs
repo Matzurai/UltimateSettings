@@ -1,3 +1,5 @@
+using System.Linq.Expressions;
+
 namespace UltimateSettings;
 
 /// <summary>
@@ -10,6 +12,21 @@ public interface ISettingsManager<TSettings> : IDisposable
     /// The most recently resolved settings snapshot.
     /// </summary>
     TSettings Current { get; }
+
+    /// <summary>
+    /// Gets the resolution metadata for the current settings snapshot.
+    /// </summary>
+    IReadOnlyDictionary<string, ResolutionInfo> CurrentResolution { get; }
+
+    /// <summary>
+    /// Gets resolution metadata for one property in the current settings snapshot.
+    /// </summary>
+    ResolutionInfo GetResolutionInfo<TValue>(Expression<Func<TSettings, TValue>> property);
+
+    /// <summary>
+    /// Returns a readable dump of the current resolution metadata.
+    /// </summary>
+    string GetResolutionDebugDump();
 
     /// <summary>
     /// Re-resolves settings from all registered sources and updates <see cref="Current"/>.

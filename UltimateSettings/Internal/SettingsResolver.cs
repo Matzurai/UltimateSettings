@@ -14,9 +14,12 @@ namespace UltimateSettings.Internal;
 internal static class SettingsResolver<TSettings>
     where TSettings : SettingsBase, new()
 {
-    public static TSettings Resolve(IReadOnlyDictionary<string, ISettingsSource> sources, IReadOnlyList<string> defaultOrder)
+    public static ResolvedSettings<TSettings> Resolve(
+        IReadOnlyDictionary<string, ISettingsSource> sources,
+        IReadOnlyList<string> defaultOrder)
     {
         var instance = new TSettings();
+        var resolution = new Dictionary<string, ResolutionInfo>(StringComparer.Ordinal);
 
         ResolveObject(
             typeof(TSettings),
@@ -25,9 +28,10 @@ internal static class SettingsResolver<TSettings>
             defaultOrder,
             path: Array.Empty<PropertyInfo>(),
             inheritedClassOrders: Array.Empty<IReadOnlyList<string>?>(),
-            inheritedPropertyOrders: Array.Empty<IReadOnlyList<string>?>());
+            inheritedPropertyOrders: Array.Empty<IReadOnlyList<string>?>(),
+            resolution);
 
-        return instance;
+        return new ResolvedSettings<TSettings>(instance, resolution);
     }
 
     private static void ResolveObject(
@@ -37,7 +41,8 @@ internal static class SettingsResolver<TSettings>
         IReadOnlyList<string> defaultOrder,
         IReadOnlyList<PropertyInfo> path,
         IReadOnlyList<IReadOnlyList<string>?> inheritedClassOrders,
-        IReadOnlyList<IReadOnlyList<string>?> inheritedPropertyOrders)
+        IReadOnlyList<IReadOnlyList<string>?> inheritedPropertyOrders,
+        Dictionary<string, ResolutionInfo> resolution)
     {
         foreach (var property in SettingsTypeMetadataCache.GetResolutionOrder(type))
         {
@@ -56,29 +61,147 @@ internal static class SettingsResolver<TSettings>
                     defaultOrder,
                     fullPath,
                     Append(inheritedClassOrders, property.ClassOrder),
-                    Append(inheritedPropertyOrders, property.PropertyOrder));
+                    Append(inheritedPropertyOrders, property.PropertyOrder),
+                    resolution);
 
                 property.Property.SetValue(instance, nestedInstance);
                 continue;
             }
 
-            var order = ResolveEffectiveOrder(property, instance, defaultOrder, inheritedClassOrders, inheritedPropertyOrders);
+            var effectiveOrder = ResolveEffectiveOrder(
+                property,
+                instance,
+                defaultOrder,
+                inheritedClassOrders,
+                inheritedPropertyOrders);
+            var order = effectiveOrder.SourceOrder;
             var targetType = property.Property.PropertyType;
+            string? winningSourceId = null;
+            var sourceValues = new List<SourceValueInfo>();
 
             foreach (var sourceId in order)
             {
-                if (!sources.TryGetValue(sourceId, out var source) || !source.CanRead)
+                if (!sources.TryGetValue(sourceId, out var source))
                 {
                     continue;
                 }
 
-                if (TryReadPath(source, fullPath, targetType, out var value))
+                if (!source.CanRead)
                 {
-                    var coerced = CoerceValue(value, targetType);
-                    property.Property.SetValue(instance, coerced);
-                    break;
+                    sourceValues.Add(new SourceValueInfo
+                    {
+                        SourceId = sourceId,
+                        WasConsidered = true,
+                        CanRead = false
+                    });
+                    continue;
+                }
+
+                try
+                {
+                    if (TryReadPath(source, fullPath, targetType, out var value))
+                    {
+                        var coerced = CoerceValue(value, targetType);
+                        sourceValues.Add(new SourceValueInfo
+                        {
+                            SourceId = sourceId,
+                            WasConsidered = true,
+                            CanRead = true,
+                            HasValue = true,
+                            Value = value
+                        });
+
+                        if (winningSourceId is null)
+                        {
+                            winningSourceId = sourceId;
+                            property.Property.SetValue(instance, coerced);
+                        }
+                    }
+                    else
+                    {
+                        sourceValues.Add(new SourceValueInfo
+                        {
+                            SourceId = sourceId,
+                            WasConsidered = true,
+                            CanRead = true
+                        });
+                    }
+                }
+                catch (Exception exception)
+                {
+                    sourceValues.Add(new SourceValueInfo
+                    {
+                        SourceId = sourceId,
+                        WasConsidered = true,
+                        CanRead = true,
+                        Error = exception.Message
+                    });
                 }
             }
+
+            foreach (var sourceId in sources.Keys)
+            {
+                if (!order.Contains(sourceId, StringComparer.Ordinal))
+                {
+                    var source = sources[sourceId];
+                    if (!source.CanRead)
+                    {
+                        sourceValues.Add(new SourceValueInfo
+                        {
+                            SourceId = sourceId,
+                            WasConsidered = false,
+                            CanRead = false
+                        });
+                        continue;
+                    }
+
+                    try
+                    {
+                        if (TryReadPath(source, fullPath, targetType, out var value))
+                        {
+                            sourceValues.Add(new SourceValueInfo
+                            {
+                                SourceId = sourceId,
+                                WasConsidered = false,
+                                CanRead = true,
+                                HasValue = true,
+                                Value = value
+                            });
+                        }
+                        else
+                        {
+                            sourceValues.Add(new SourceValueInfo
+                            {
+                                SourceId = sourceId,
+                                WasConsidered = false,
+                                CanRead = true
+                            });
+                        }
+                    }
+                    catch (Exception exception)
+                    {
+                        sourceValues.Add(new SourceValueInfo
+                        {
+                            SourceId = sourceId,
+                            WasConsidered = false,
+                            CanRead = true,
+                            Error = exception.Message
+                        });
+                    }
+                }
+            }
+
+            resolution[string.Join('.', fullPath.Select(segment => segment.Name))] = new ResolutionInfo
+            {
+                PropertyPath = string.Join('.', fullPath.Select(segment => segment.Name)),
+                ResolvedValue = property.Property.GetValue(instance),
+                WinningSourceId = winningSourceId,
+                AppliedSourceOrder = order,
+                AppliedConditionProperty = effectiveOrder.AppliedConditionProperty,
+                AppliedConditionValue = effectiveOrder.AppliedConditionValue,
+                ConditionEvaluations = effectiveOrder.ConditionEvaluations,
+                Sources = sourceValues
+            };
         }
     }
 
@@ -158,53 +281,104 @@ internal static class SettingsResolver<TSettings>
     // Precedence: matching conditional order > innermost property-level SourceOrder (this property, then walking
     // outward along the nesting path) > manager's explicit default order > innermost class-level SourceOrder
     // (this property's declaring type, then walking outward along the nesting path).
-    private static IReadOnlyList<string> ResolveEffectiveOrder(
+    private static EffectiveOrder ResolveEffectiveOrder(
         PropertyMetadata property,
         object parentInstance,
         IReadOnlyList<string> defaultOrder,
         IReadOnlyList<IReadOnlyList<string>?> inheritedClassOrders,
         IReadOnlyList<IReadOnlyList<string>?> inheritedPropertyOrders)
     {
+        var evaluations = new List<ConditionEvaluationInfo>();
         foreach (var conditionalOrder in property.ConditionalOrders)
         {
             var conditionValue = conditionalOrder.ConditionProperty.GetValue(parentInstance) as bool?;
+            var applied = conditionValue == true;
+            evaluations.Add(new ConditionEvaluationInfo
+            {
+                ConditionProperty = conditionalOrder.ConditionProperty.Name,
+                Value = conditionValue,
+                SourceOrder = conditionalOrder.SourceIds,
+                Applied = applied
+            });
+
             if (conditionValue == true)
             {
-                return conditionalOrder.SourceIds;
+                return new EffectiveOrder(
+                    conditionalOrder.SourceIds,
+                    conditionalOrder.ConditionProperty.Name,
+                    conditionValue,
+                    evaluations);
             }
         }
 
         if (property.PropertyOrder is not null)
         {
-            return property.PropertyOrder;
+            return new EffectiveOrder(property.PropertyOrder, null, null, evaluations);
         }
 
         for (var i = inheritedPropertyOrders.Count - 1; i >= 0; i--)
         {
             if (inheritedPropertyOrders[i] is not null)
             {
-                return inheritedPropertyOrders[i]!;
+                return new EffectiveOrder(inheritedPropertyOrders[i]!, null, null, evaluations);
             }
         }
 
         if (defaultOrder.Count > 0)
         {
-            return defaultOrder;
+            return new EffectiveOrder(defaultOrder, null, null, evaluations);
         }
 
         if (property.ClassOrder is not null)
         {
-            return property.ClassOrder;
+            return new EffectiveOrder(property.ClassOrder, null, null, evaluations);
         }
 
         for (var i = inheritedClassOrders.Count - 1; i >= 0; i--)
         {
             if (inheritedClassOrders[i] is not null)
             {
-                return inheritedClassOrders[i]!;
+                return new EffectiveOrder(inheritedClassOrders[i]!, null, null, evaluations);
             }
         }
 
-        return defaultOrder;
+        return new EffectiveOrder(defaultOrder, null, null, evaluations);
     }
+}
+
+internal sealed class ResolvedSettings<TSettings>
+    where TSettings : SettingsBase, new()
+{
+    public ResolvedSettings(TSettings settings, IReadOnlyDictionary<string, ResolutionInfo> resolution)
+    {
+        Settings = settings;
+        Resolution = resolution;
+    }
+
+    public TSettings Settings { get; }
+
+    public IReadOnlyDictionary<string, ResolutionInfo> Resolution { get; }
+}
+
+internal sealed class EffectiveOrder
+{
+    public EffectiveOrder(
+        IReadOnlyList<string> sourceOrder,
+        string? appliedConditionProperty,
+        bool? appliedConditionValue,
+        IReadOnlyList<ConditionEvaluationInfo> conditionEvaluations)
+    {
+        SourceOrder = sourceOrder;
+        AppliedConditionProperty = appliedConditionProperty;
+        AppliedConditionValue = appliedConditionValue;
+        ConditionEvaluations = conditionEvaluations;
+    }
+
+    public IReadOnlyList<string> SourceOrder { get; }
+
+    public string? AppliedConditionProperty { get; }
+
+    public bool? AppliedConditionValue { get; }
+
+    public IReadOnlyList<ConditionEvaluationInfo> ConditionEvaluations { get; }
 }

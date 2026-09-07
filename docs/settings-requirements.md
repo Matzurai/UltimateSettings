@@ -190,6 +190,22 @@ settingsManager.Edit(SourceIds.Machine, edit =>
 
 `Edit` resolves each `PropertyInfo` from its expression, validates the target source against each property's write constraints, and persists the complete edit to that source. A future optimization may add a source generator to emit per-property edit helpers, but this is deferred until the attribute-based model is proven, since it adds build-time complexity not required for v1.
 
+### Resolution Metadata And Debugging
+
+The manager keeps resolution metadata together with the current settings snapshot. It includes the
+effective source order, evaluated `SourceOrderIf` conditions, the winning source, and values or read
+errors observed from every registered source:
+
+```csharp
+var info = manager.GetResolutionInfo(s => s.FontSize);
+Console.WriteLine(info.WinningSourceId);
+Console.WriteLine(manager.GetResolutionDebugDump());
+```
+
+`CurrentResolution` exposes the same metadata keyed by property path, including nested paths. The debug
+dump is deterministic and intended for diagnostics and support logs. It includes raw values; callers are
+responsible for not using this output for settings that contain secrets.
+
 ### Source Registration
 Sources are registered at the composition root, not inside the settings class. A settings class only references source ids by name via `SourceOrder`/`SourceOrderIf`; it must not construct or own source instances itself. This keeps the schema free of environment details (file paths, registry hives, per-tenant locations) and keeps sources swappable for tests without subclassing.
 

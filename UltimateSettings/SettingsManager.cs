@@ -28,7 +28,9 @@ internal sealed class SettingsManager<TSettings> : ISettingsManager<TSettings>
         _defaultOrder = defaultOrder;
         _validator = validator;
 
-        Current = ResolveAndValidateCandidate(out var initialError);
+        var initialResolution = ResolveAndValidateCandidate(out var initialError);
+        Current = initialResolution.Settings;
+        CurrentResolution = initialResolution.Resolution;
         if (initialError is not null)
         {
             throw new InvalidOperationException($"Initial settings validation failed: {initialError}");
@@ -46,6 +48,28 @@ internal sealed class SettingsManager<TSettings> : ISettingsManager<TSettings>
 
     public TSettings Current { get; private set; }
 
+    public IReadOnlyDictionary<string, ResolutionInfo> CurrentResolution { get; private set; }
+
+    public ResolutionInfo GetResolutionInfo<TValue>(Expression<Func<TSettings, TValue>> property)
+    {
+        var propertyInfo = PropertyAccessor.GetProperty(property);
+        var path = propertyInfo.Name;
+
+        if (!CurrentResolution.TryGetValue(path, out var info))
+        {
+            throw new ArgumentException(
+                $"Resolution metadata was not found for property '{path}'. Nested property selectors are not supported by this lookup.",
+                nameof(property));
+        }
+
+        return info;
+    }
+
+    public string GetResolutionDebugDump()
+    {
+        return ResolutionDebugDump.Format(CurrentResolution);
+    }
+
     public TSettings Load()
     {
         lock (_lock)
@@ -55,7 +79,8 @@ internal sealed class SettingsManager<TSettings> : ISettingsManager<TSettings>
                 throw new ObjectDisposedException(nameof(SettingsManager<TSettings>));
             }
 
-            var candidate = SettingsResolver<TSettings>.Resolve(_sources, _defaultOrder);
+            var resolution = SettingsResolver<TSettings>.Resolve(_sources, _defaultOrder);
+            var candidate = resolution.Settings;
 
             if (_validator is not null && !_validator(candidate, out var error))
             {
@@ -65,6 +90,7 @@ internal sealed class SettingsManager<TSettings> : ISettingsManager<TSettings>
 
             var previous = Current;
             Current = candidate;
+            CurrentResolution = resolution.Resolution;
             SettingsChanged?.Invoke(this, new SettingsChangedEventArgs<TSettings>(previous, candidate));
             return Current;
         }
@@ -137,18 +163,19 @@ internal sealed class SettingsManager<TSettings> : ISettingsManager<TSettings>
         }
     }
 
-    private TSettings ResolveAndValidateCandidate(out string? validationError)
+    private ResolvedSettings<TSettings> ResolveAndValidateCandidate(out string? validationError)
     {
-        var candidate = SettingsResolver<TSettings>.Resolve(_sources, _defaultOrder);
+        var resolution = SettingsResolver<TSettings>.Resolve(_sources, _defaultOrder);
+        var candidate = resolution.Settings;
 
         if (_validator is not null && !_validator(candidate, out var error))
         {
             validationError = error;
-            return candidate;
+            return resolution;
         }
 
         validationError = null;
-        return candidate;
+        return resolution;
     }
 
     private void OnSourceChanged(object? sender, EventArgs e)
