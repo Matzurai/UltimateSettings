@@ -22,6 +22,10 @@ internal sealed class PropertyMetadata
     public IReadOnlyList<string>? ClassOrder { get; init; }
 
     public required IReadOnlyList<ConditionalOrder> ConditionalOrders { get; init; }
+
+    public IReadOnlyList<string>? WritableTo { get; init; }
+
+    public bool IsReadonly { get; init; }
 }
 
 /// <summary>

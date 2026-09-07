@@ -21,6 +21,30 @@ public sealed class SampleSettings : SettingsBase
     public string SettingXY { get; init; } = string.Empty;
 }
 
+public sealed class WritePolicySettings : SettingsBase
+{
+    [WritableTo("User")]
+    public int UserOnly { get; init; }
+
+    [Readonly]
+    public int Locked { get; init; }
+
+    public int AnySource { get; init; }
+}
+
+public sealed class MissingWritableSourceSettings : SettingsBase
+{
+    [WritableTo("Missing")]
+    public int Value { get; init; }
+}
+
+public sealed class ConflictingWritePolicySettings : SettingsBase
+{
+    [WritableTo("User")]
+    [Readonly]
+    public int Value { get; init; }
+}
+
 
 [SourceOrder("User", "Machine")]
 public sealed class HierarchicalSettingsA : SettingsBase
@@ -357,6 +381,74 @@ public sealed class SettingsResolutionTests
         }));
 
         Assert.False(user.TryRead(nameof(SampleSettings.FontSize), out _));
+    }
+
+    [Fact]
+    public void Edit_WithoutWritableTo_AllowsEveryRegisteredWritableSource()
+    {
+        var user = new InMemorySettingsSource("User");
+        var machine = new InMemorySettingsSource("Machine");
+        using var manager = new SettingsManagerBuilder<WritePolicySettings>()
+            .AddSource("User", user)
+            .AddSource("Machine", machine)
+            .WithDefaultOrder("User", "Machine")
+            .Build();
+
+        manager.Edit("Machine", edit => edit.Set(s => s.AnySource, 42));
+
+        Assert.Equal(42, manager.Current.AnySource);
+    }
+
+    [Fact]
+    public void Edit_WithWritableToOtherSource_ThrowsBeforeWriting()
+    {
+        var user = new InMemorySettingsSource("User");
+        var machine = new InMemorySettingsSource("Machine");
+        using var manager = new SettingsManagerBuilder<WritePolicySettings>()
+            .AddSource("User", user)
+            .AddSource("Machine", machine)
+            .WithDefaultOrder("User", "Machine")
+            .Build();
+
+        Assert.Throws<InvalidOperationException>(() => manager.Edit("Machine", edit =>
+            edit.Set(s => s.UserOnly, 42)));
+
+        Assert.False(machine.TryRead(nameof(WritePolicySettings.UserOnly), out _));
+    }
+
+    [Fact]
+    public void Edit_ReadonlyProperty_ThrowsBeforeWriting()
+    {
+        var user = new InMemorySettingsSource("User");
+        using var manager = new SettingsManagerBuilder<WritePolicySettings>()
+            .AddSource("User", user)
+            .WithDefaultOrder("User")
+            .Build();
+
+        Assert.Throws<InvalidOperationException>(() => manager.Edit("User", edit =>
+            edit.Set(s => s.Locked, 42)));
+
+        Assert.False(user.TryRead(nameof(WritePolicySettings.Locked), out _));
+    }
+
+    [Fact]
+    public void Build_WithUnknownWritableSource_Throws()
+    {
+        var builder = new SettingsManagerBuilder<MissingWritableSourceSettings>()
+            .AddSource("User", new InMemorySettingsSource("User"))
+            .WithDefaultOrder("User");
+
+        Assert.Throws<InvalidOperationException>(() => builder.Build());
+    }
+
+    [Fact]
+    public void Build_WithConflictingWritePolicies_Throws()
+    {
+        var builder = new SettingsManagerBuilder<ConflictingWritePolicySettings>()
+            .AddSource("User", new InMemorySettingsSource("User"))
+            .WithDefaultOrder("User");
+
+        Assert.Throws<InvalidOperationException>(() => builder.Build());
     }
 
     [Fact]

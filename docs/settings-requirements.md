@@ -138,6 +138,21 @@ public sealed class SourceOrderIfAttribute : Attribute
 - `SourceOrderIf` declares an alternate precedence used when the named condition property currently resolves to `true`. Multiple `SourceOrderIf` attributes may stack on one property; they are evaluated top-to-bottom and the first true condition wins, otherwise the base `SourceOrder` applies.
 - The condition property is referenced via `nameof(...)`, keeping the reference refactor-safe at compile time.
 
+Write targets are declared independently from read precedence:
+
+```csharp
+[WritableTo("User", "Machine")]
+public string Theme { get; init; } = "Light";
+
+[Readonly]
+public string InstallationId { get; init; } = string.Empty;
+```
+
+- `WritableTo` restricts edits to the listed registered source ids.
+- Without `WritableTo`, every registered writable source is allowed.
+- `Readonly` is an alias for an empty writable set.
+- Declaring both `WritableTo` and `Readonly` is invalid.
+
 ### Resolution Order Rule
 A property referenced by `SourceOrderIf` must be fully resolved before the dependent property is resolved, since the dependent property's effective precedence depends on it. At settings-type registration time, the library must:
 1. Build a dependency graph from all `SourceOrderIf` references.
@@ -173,7 +188,7 @@ settingsManager.Edit(SourceIds.Machine, edit =>
 });
 ```
 
-`Save` resolves the `PropertyInfo` from the expression, validates the target source against the property's write constraints, and persists only to that source. A future optimization may add a source generator to emit per-property write methods (for example `SaveFontSize(value, sourceId)`), but this is deferred until the attribute-based model is proven, since it adds build-time complexity not required for v1.
+`Edit` resolves each `PropertyInfo` from its expression, validates the target source against each property's write constraints, and persists the complete edit to that source. A future optimization may add a source generator to emit per-property edit helpers, but this is deferred until the attribute-based model is proven, since it adds build-time complexity not required for v1.
 
 ### Source Registration
 Sources are registered at the composition root, not inside the settings class. A settings class only references source ids by name via `SourceOrder`/`SourceOrderIf`; it must not construct or own source instances itself. This keeps the schema free of environment details (file paths, registry hives, per-tenant locations) and keeps sources swappable for tests without subclassing.

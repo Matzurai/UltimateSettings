@@ -14,6 +14,7 @@ internal static class SettingsTypeMetadataCache
 {
     private static readonly ConcurrentDictionary<Type, IReadOnlyList<PropertyMetadata>> ResolutionOrderCache = new();
     private static readonly ConcurrentDictionary<Type, IReadOnlyCollection<string>> ReferencedSourceIdsCache = new();
+    private static readonly ConcurrentDictionary<Type, IReadOnlyCollection<string>> WritableSourceIdsCache = new();
     private static readonly ConcurrentDictionary<Type, IReadOnlyList<string>> ArrayMergeWarningsCache = new();
 
     public static IReadOnlyList<PropertyMetadata> GetResolutionOrder(Type type)
@@ -29,6 +30,23 @@ internal static class SettingsTypeMetadataCache
             CollectReferencedSourceIds(t, ids, new HashSet<Type>());
             return ids;
         });
+    }
+
+    public static IReadOnlyCollection<string> GetAllWritableSourceIds(Type type)
+    {
+        return WritableSourceIdsCache.GetOrAdd(type, t =>
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            CollectWritableSourceIds(t, ids, new HashSet<Type>());
+            return ids;
+        });
+    }
+
+    public static PropertyMetadata GetPropertyMetadata(PropertyInfo property)
+    {
+        return GetResolutionOrder(property.DeclaringType!).FirstOrDefault(metadata => metadata.Property == property)
+            ?? throw new InvalidOperationException(
+                $"Property '{property.DeclaringType?.Name}.{property.Name}' is not a settings property.");
     }
 
     /// <summary>
@@ -75,6 +93,14 @@ internal static class SettingsTypeMetadataCache
                     $"'{type.Name}.{property.Name}' is not an init-only property. SettingsBase-derived types must declare properties with an init accessor to prevent accidental writes to the in-memory snapshot.");
             }
             var propertyOrder = property.GetCustomAttribute<SourceOrderAttribute>()?.SourceIds;
+            var writableTo = property.GetCustomAttribute<WritableToAttribute>()?.SourceIds;
+            var isReadonly = property.GetCustomAttribute<ReadonlyAttribute>() is not null;
+            if (writableTo is not null && isReadonly)
+            {
+                throw new InvalidOperationException(
+                    $"'{type.Name}.{property.Name}' cannot declare both WritableTo and Readonly.");
+            }
+
             var conditionalOrders = new List<ConditionalOrder>();
             var propertyDependencies = new List<PropertyInfo>();
 
@@ -103,7 +129,9 @@ internal static class SettingsTypeMetadataCache
                 Property = property,
                 PropertyOrder = propertyOrder,
                 ClassOrder = classOrder,
-                ConditionalOrders = conditionalOrders
+                ConditionalOrders = conditionalOrders,
+                WritableTo = writableTo,
+                IsReadonly = isReadonly
             };
             dependencies[property] = propertyDependencies;
         }
@@ -194,6 +222,32 @@ internal static class SettingsTypeMetadataCache
             if (IsNestedSettingsType(property.Property.PropertyType))
             {
                 CollectReferencedSourceIds(property.Property.PropertyType, ids, visiting);
+            }
+        }
+
+        visiting.Remove(type);
+    }
+
+    private static void CollectWritableSourceIds(Type type, HashSet<string> ids, HashSet<Type> visiting)
+    {
+        if (!visiting.Add(type))
+        {
+            return;
+        }
+
+        foreach (var property in GetResolutionOrder(type))
+        {
+            if (property.WritableTo is not null)
+            {
+                foreach (var id in property.WritableTo)
+                {
+                    ids.Add(id);
+                }
+            }
+
+            if (IsNestedSettingsType(property.Property.PropertyType))
+            {
+                CollectWritableSourceIds(property.Property.PropertyType, ids, visiting);
             }
         }
 

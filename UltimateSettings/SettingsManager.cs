@@ -94,6 +94,23 @@ internal sealed class SettingsManager<TSettings> : ISettingsManager<TSettings>
             var editor = new SettingsEditor<TSettings>();
             edit(editor);
 
+            foreach (var property in editor.Properties)
+            {
+                var metadata = SettingsTypeMetadataCache.GetPropertyMetadata(property);
+                if (metadata.IsReadonly)
+                {
+                    throw new InvalidOperationException(
+                        $"Setting '{property.DeclaringType?.Name}.{property.Name}' is read-only.");
+                }
+
+                if (metadata.WritableTo is not null
+                    && !metadata.WritableTo.Contains(sourceId, StringComparer.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        $"Setting '{property.DeclaringType?.Name}.{property.Name}' cannot be written to source '{sourceId}'.");
+                }
+            }
+
             source.WriteMany(editor.Changes);
 
             Load();

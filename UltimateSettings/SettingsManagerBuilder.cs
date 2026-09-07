@@ -70,6 +70,15 @@ public sealed class SettingsManagerBuilder<TSettings>
             }
         }
 
+        foreach (var id in SettingsTypeMetadataCache.GetAllWritableSourceIds(typeof(TSettings)))
+        {
+            if (!_sources.ContainsKey(id))
+            {
+                throw new InvalidOperationException(
+                    $"'{typeof(TSettings).Name}' references source id '{id}' via WritableTo, but no such source is registered.");
+            }
+        }
+
         foreach (var warning in SettingsTypeMetadataCache.GetArrayMergeWarnings(typeof(TSettings)))
         {
             System.Diagnostics.Trace.TraceWarning(warning);
