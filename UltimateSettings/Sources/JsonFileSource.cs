@@ -154,6 +154,13 @@ public sealed class JsonFileSource : IObservableSettingsSource, IDisposable
 
     public void Write(string key, object? value)
     {
+        WriteMany(new Dictionary<string, object?> { [key] = value });
+    }
+
+    public void WriteMany(IReadOnlyDictionary<string, object?> values)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+
         if (!CanWrite)
         {
             throw new InvalidOperationException($"Source '{Id}' is write-protected.");
@@ -186,8 +193,10 @@ public sealed class JsonFileSource : IObservableSettingsSource, IDisposable
                 Directory.CreateDirectory(directory);
             }
 
-            var jsonNode = JsonSerializer.SerializeToNode(value, _options);
-            root[key] = jsonNode;
+            foreach (var entry in values)
+            {
+                root[entry.Key] = JsonSerializer.SerializeToNode(entry.Value, _options);
+            }
 
             var updatedJson = root.ToJsonString(_options);
 

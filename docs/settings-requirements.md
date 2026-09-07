@@ -184,6 +184,7 @@ public interface ISettingsSource
     string Id { get; }
     bool CanRead { get; }
     bool CanWrite { get; }
+    void WriteMany(IReadOnlyDictionary<string, object?> values);
 }
 ```
 

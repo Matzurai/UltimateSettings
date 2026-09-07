@@ -158,6 +158,13 @@ public sealed class XmlFileSource : IObservableSettingsSource, IDisposable
 
     public void Write(string key, object? value)
     {
+        WriteMany(new Dictionary<string, object?> { [key] = value });
+    }
+
+    public void WriteMany(IReadOnlyDictionary<string, object?> values)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+
         if (!CanWrite)
         {
             throw new InvalidOperationException($"Source '{Id}' is write-protected.");
@@ -189,18 +196,21 @@ public sealed class XmlFileSource : IObservableSettingsSource, IDisposable
                 Directory.CreateDirectory(directory);
             }
 
-            root.Elements(key).Remove();
-
-            if (value is not null)
+            foreach (var entry in values)
             {
-                var serializer = new XmlSerializer(value.GetType(), new XmlRootAttribute(key));
-                using var stringWriter = new StringWriter();
-                using (var xmlWriter = XmlWriter.Create(stringWriter, new XmlWriterSettings { OmitXmlDeclaration = true }))
-                {
-                    serializer.Serialize(xmlWriter, value);
-                }
+                root.Elements(entry.Key).Remove();
 
-                root.Add(XElement.Parse(stringWriter.ToString()));
+                if (entry.Value is not null)
+                {
+                    var serializer = new XmlSerializer(entry.Value.GetType(), new XmlRootAttribute(entry.Key));
+                    using var stringWriter = new StringWriter();
+                    using (var xmlWriter = XmlWriter.Create(stringWriter, new XmlWriterSettings { OmitXmlDeclaration = true }))
+                    {
+                        serializer.Serialize(xmlWriter, entry.Value);
+                    }
+
+                    root.Add(XElement.Parse(stringWriter.ToString()));
+                }
             }
 
             // Temporarily pause watcher to prevent re-triggering reload on self-write.

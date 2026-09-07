@@ -222,16 +222,19 @@ public class CustomSource : ISettingsSource
     }
     
     /// <summary>
-    /// Write a value to this source.
+    /// Write all values from one edit to this source.
     /// </summary>
-    public void Write(string key, object? value)
+    public void WriteMany(IReadOnlyDictionary<string, object?> values)
     {
         if (!CanWrite)
         {
             throw new InvalidOperationException($"Source '{Id}' does not support write operations.");
         }
-        
-        _store[key] = value;
+
+        foreach (var entry in values)
+        {
+            _store[entry.Key] = entry.Value;
+        }
     }
     
     /// <summary>

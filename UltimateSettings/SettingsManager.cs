@@ -94,10 +94,7 @@ internal sealed class SettingsManager<TSettings> : ISettingsManager<TSettings>
             var editor = new SettingsEditor<TSettings>();
             edit(editor);
 
-            foreach (var change in editor.Changes)
-            {
-                source.Write(change.Property.Name, change.Value);
-            }
+            source.WriteMany(editor.Changes);
 
             Load();
         }

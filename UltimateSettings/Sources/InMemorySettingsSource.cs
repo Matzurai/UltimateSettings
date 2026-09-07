@@ -46,12 +46,22 @@ public sealed class InMemorySettingsSource : IObservableSettingsSource
 
     public void Write(string key, object? value)
     {
+        WriteMany(new Dictionary<string, object?> { [key] = value });
+    }
+
+    public void WriteMany(IReadOnlyDictionary<string, object?> values)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+
         if (!CanWrite)
         {
             throw new InvalidOperationException($"Source '{Id}' is write-protected.");
         }
 
-        _values[key] = value;
+        foreach (var entry in values)
+        {
+            _values[entry.Key] = entry.Value;
+        }
     }
 
     /// <summary>

@@ -17,7 +17,10 @@ public interface ISettingsSource
 
     bool TryRead(string key, Type targetType, out object? value);
 
-    void Write(string key, object? value);
+    /// <summary>
+    /// Persists all supplied values as one source operation.
+    /// </summary>
+    void WriteMany(IReadOnlyDictionary<string, object?> values);
 
     /// <summary>
     /// Navigates one level into a raw container value previously returned by <see cref="TryRead(string, Type, out object?)"/>

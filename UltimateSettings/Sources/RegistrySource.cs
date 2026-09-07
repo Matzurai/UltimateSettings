@@ -107,18 +107,29 @@ public sealed class RegistrySource : ISettingsSource
 
     public void Write(string key, object? value)
     {
+        WriteMany(new Dictionary<string, object?> { [key] = value });
+    }
+
+    public void WriteMany(IReadOnlyDictionary<string, object?> values)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+
         if (!CanWrite)
         {
             throw new InvalidOperationException($"Source '{Id}' is write-protected.");
         }
 
-        if (value is not null && SettingsTypeMetadataCache.IsNestedSettingsType(value.GetType()))
+        foreach (var entry in values)
         {
-            WriteNestedObject(CombinePath(KeyPath, key), value);
-            return;
+            if (entry.Value is not null && SettingsTypeMetadataCache.IsNestedSettingsType(entry.Value.GetType()))
+            {
+                WriteNestedObject(CombinePath(KeyPath, entry.Key), entry.Value);
+            }
+            else
+            {
+                _backend.SetValue(KeyPath, entry.Key, EncodeLeafValue(entry.Value));
+            }
         }
-
-        _backend.SetValue(KeyPath, key, EncodeLeafValue(value));
     }
 
     private void WriteNestedObject(string subKeyPath, object nestedInstance)
