@@ -5,9 +5,9 @@ namespace UltimateSettings.Tests;
 
 public sealed class ValidatableSettings : SettingsBase
 {
-    public int FontSize { get; set; } = 12;
+    public int FontSize { get; init; } = 12;
 
-    public string Theme { get; set; } = "Light";
+    public string Theme { get; init; } = "Light";
 }
 
 public sealed class HotReloadAndValidationTests

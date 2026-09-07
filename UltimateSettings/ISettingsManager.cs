@@ -1,5 +1,3 @@
-using System.Linq.Expressions;
-
 namespace UltimateSettings;
 
 /// <summary>
@@ -19,9 +17,9 @@ public interface ISettingsManager<TSettings> : IDisposable
     TSettings Load();
 
     /// <summary>
-    /// Writes a value to a specific registered source and refreshes <see cref="Current"/>.
+    /// Applies one or more changes to a specific registered source and refreshes <see cref="Current"/> once.
     /// </summary>
-    void Save<TValue>(Expression<Func<TSettings, TValue>> property, TValue value, string sourceId);
+    void Edit(string sourceId, Action<ISettingsEditor<TSettings>> edit);
 
     /// <summary>
     /// Event raised when settings are successfully reloaded and <see cref="Current"/> is updated.

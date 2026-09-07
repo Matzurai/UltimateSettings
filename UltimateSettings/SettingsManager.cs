@@ -70,16 +70,16 @@ internal sealed class SettingsManager<TSettings> : ISettingsManager<TSettings>
         }
     }
 
-    public void Save<TValue>(Expression<Func<TSettings, TValue>> property, TValue value, string sourceId)
+    public void Edit(string sourceId, Action<ISettingsEditor<TSettings>> edit)
     {
+        ArgumentNullException.ThrowIfNull(edit);
+
         lock (_lock)
         {
             if (_isDisposed)
             {
                 throw new ObjectDisposedException(nameof(SettingsManager<TSettings>));
             }
-
-            var propertyInfo = PropertyAccessor.GetProperty(property);
 
             if (!_sources.TryGetValue(sourceId, out var source))
             {
@@ -91,7 +91,14 @@ internal sealed class SettingsManager<TSettings> : ISettingsManager<TSettings>
                 throw new InvalidOperationException($"Source '{sourceId}' is write-protected.");
             }
 
-            source.Write(propertyInfo.Name, value);
+            var editor = new SettingsEditor<TSettings>();
+            edit(editor);
+
+            foreach (var change in editor.Changes)
+            {
+                source.Write(change.Property.Name, change.Value);
+            }
+
             Load();
         }
     }

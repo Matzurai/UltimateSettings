@@ -73,7 +73,7 @@ manager.SettingsChanged += (sender, args) =>
 var newSettings = manager.Load();
 
 // Write a setting to a specific source
-manager.Save(s => s.FontSize, 14, "User");
+manager.Edit("User", edit => edit.Set(s => s.FontSize, 14));
 ```
 
 ## Configuration Attributes

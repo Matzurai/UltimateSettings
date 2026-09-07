@@ -157,13 +157,20 @@ Targeted writes use expression-tree property selectors instead of per-property g
 public interface ISettingsManager<TSettings> where TSettings : SettingsBase, new()
 {
     TSettings Load();
-    void Save<TValue>(Expression<Func<TSettings, TValue>> property, TValue value, string sourceId);
+    void Edit(string sourceId, Action<ISettingsEditor<TSettings>> edit);
 }
 ```
 
 ```csharp
-settingsManager.Save(s => s.FontSize, 14, SourceIds.User);
-settingsManager.Save(s => s.SettingXY, "AES-256", SourceIds.Machine);
+settingsManager.Edit(SourceIds.User, edit =>
+{
+    edit.Set(s => s.FontSize, 14);
+});
+
+settingsManager.Edit(SourceIds.Machine, edit =>
+{
+    edit.Set(s => s.SettingXY, "AES-256");
+});
 ```
 
 `Save` resolves the `PropertyInfo` from the expression, validates the target source against the property's write constraints, and persists only to that source. A future optimization may add a source generator to emit per-property write methods (for example `SaveFontSize(value, sourceId)`), but this is deferred until the attribute-based model is proven, since it adds build-time complexity not required for v1.
@@ -247,7 +254,7 @@ public interface ISettingsManager<TSettings> where TSettings : SettingsBase, new
 {
     TSettings Current { get; }
     TSettings Load();
-    void Save<TValue>(Expression<Func<TSettings, TValue>> property, TValue value, string sourceId);
+    void Edit(string sourceId, Action<ISettingsEditor<TSettings>> edit);
     event EventHandler<SettingsChangedEventArgs<TSettings>> SettingsChanged;
     event EventHandler<SettingsReloadRejectedEventArgs> SettingsReloadRejected;
 }

@@ -8,106 +8,106 @@ namespace UltimateSettings.Tests;
 [SourceOrder("User", "Machine")]
 public sealed class SampleSettings : SettingsBase
 {
-    public int FontSize { get; set; } = 12;
+    public int FontSize { get; init; } = 12;
 
     [SourceOrder("Machine", "GroupPolicy")]
-    public string[] AllowedEncryptionMethods { get; set; } = Array.Empty<string>();
+    public string[] AllowedEncryptionMethods { get; init; } = Array.Empty<string>();
 
     [SourceOrder("GroupPolicy", "Machine")]
-    public bool CanOverrideSettingXY { get; set; }
+    public bool CanOverrideSettingXY { get; init; }
 
     [SourceOrder("GroupPolicy", "Machine")]
     [SourceOrderIf(nameof(CanOverrideSettingXY), "User", "GroupPolicy", "Machine")]
-    public string SettingXY { get; set; } = string.Empty;
+    public string SettingXY { get; init; } = string.Empty;
 }
 
 
 [SourceOrder("User", "Machine")]
 public sealed class HierarchicalSettingsA : SettingsBase
 {
-    public HierarchicalSettingsB? B { get; set; }
-    public string? AValue { get; set; }
+    public HierarchicalSettingsB? B { get; init; }
+    public string? AValue { get; init; }
 }
 
 public sealed class HierarchicalSettingsB : SettingsBase
 {
     [SourceOrder("Machine", "User")]
-    public string? BValue { get; set; }
+    public string? BValue { get; init; }
 }
 
 public sealed class NestedClassOrderA : SettingsBase
 {
-    public NestedClassOrderB? B { get; set; }
+    public NestedClassOrderB? B { get; init; }
 }
 
 [SourceOrder("Machine", "User")]
 public sealed class NestedClassOrderB : SettingsBase
 {
-    public string? Value { get; set; }
+    public string? Value { get; init; }
 }
 
 public sealed class ContainingPropertyOrderA : SettingsBase
 {
     [SourceOrder("Machine", "User")]
-    public ContainingPropertyOrderB? B { get; set; }
+    public ContainingPropertyOrderB? B { get; init; }
 }
 
 public sealed class ContainingPropertyOrderB : SettingsBase
 {
-    public string? Value { get; set; }
+    public string? Value { get; init; }
 }
 
 public sealed class LeafPropertyOrderA : SettingsBase
 {
     [SourceOrder("Machine", "User")]
-    public LeafPropertyOrderB? B { get; set; }
+    public LeafPropertyOrderB? B { get; init; }
 }
 
 public sealed class LeafPropertyOrderB : SettingsBase
 {
     [SourceOrder("User", "Machine")]
-    public string? Value { get; set; }
+    public string? Value { get; init; }
 }
 
 public sealed class NestedConditionalA : SettingsBase
 {
-    public NestedConditionalB? B { get; set; }
+    public NestedConditionalB? B { get; init; }
 }
 
 public sealed class NestedConditionalB : SettingsBase
 {
-    public bool CanOverride { get; set; }
+    public bool CanOverride { get; init; }
 
     [SourceOrder("Machine", "User")]
     [SourceOrderIf(nameof(CanOverride), "User", "Machine")]
-    public string? Value { get; set; }
+    public string? Value { get; init; }
 }
 
 public sealed class DeepNestingA : SettingsBase
 {
-    public DeepNestingB? B { get; set; }
+    public DeepNestingB? B { get; init; }
 }
 
 public sealed class DeepNestingB : SettingsBase
 {
-    public DeepNestingC? C { get; set; }
+    public DeepNestingC? C { get; init; }
 }
 
 [SourceOrder("Machine", "User")]
 public sealed class DeepNestingC : SettingsBase
 {
-    public string? Value { get; set; }
+    public string? Value { get; init; }
 }
 
 public sealed class ArrayOfNestedSettingsA : SettingsBase
 {
-    public HierarchicalSettingsB[]? Items { get; set; }
+    public HierarchicalSettingsB[]? Items { get; init; }
 }
 
 public sealed class SuppressedArrayOfNestedSettingsA : SettingsBase
 {
     [SuppressArrayMergeWarning]
-    public HierarchicalSettingsB[]? Items { get; set; }
+    public HierarchicalSettingsB[]? Items { get; init; }
 }
 
 /// <summary>Captures Trace warnings raised during a test so they can be asserted without polluting global listeners.</summary>
@@ -128,13 +128,13 @@ internal sealed class CapturingTraceListener : TraceListener
 
 public sealed class NestedMissingSourceA : SettingsBase
 {
-    public NestedMissingSourceB? B { get; set; }
+    public NestedMissingSourceB? B { get; init; }
 }
 
 [SourceOrder("DoesNotExist", "User")]
 public sealed class NestedMissingSourceB : SettingsBase
 {
-    public string? Value { get; set; }
+    public string? Value { get; init; }
 }
 
 
@@ -261,7 +261,7 @@ public sealed class SettingsResolutionTests
     }
 
     [Fact]
-    public void Save_WritesToTargetSource_AndRefreshesCurrent()
+    public void Edit_WritesToTargetSource_AndRefreshesCurrent()
     {
         var user = new InMemorySettingsSource("User");
         var machine = new InMemorySettingsSource("Machine");
@@ -274,7 +274,7 @@ public sealed class SettingsResolutionTests
             .WithDefaultOrder("User", "Machine", "GroupPolicy")
             .Build();
 
-        manager.Save(s => s.FontSize, 18, "Machine");
+        manager.Edit("Machine", edit => edit.Set(s => s.FontSize, 18));
 
         Assert.True(machine.TryRead(nameof(SampleSettings.FontSize), out var raw));
         Assert.Equal(18, raw);
@@ -282,7 +282,7 @@ public sealed class SettingsResolutionTests
     }
 
     [Fact]
-    public void Save_ToWriteProtectedSource_Throws()
+    public void Edit_ToWriteProtectedSource_Throws()
     {
         var user = new InMemorySettingsSource("User");
         var machine = new InMemorySettingsSource("Machine", canWrite: false);
@@ -295,11 +295,11 @@ public sealed class SettingsResolutionTests
             .WithDefaultOrder("User", "Machine", "GroupPolicy")
             .Build();
 
-        Assert.Throws<InvalidOperationException>(() => manager.Save(s => s.FontSize, 18, "Machine"));
+        Assert.Throws<InvalidOperationException>(() => manager.Edit("Machine", edit => edit.Set(s => s.FontSize, 18)));
     }
 
     [Fact]
-    public void Save_ToUnknownSource_Throws()
+    public void Edit_ToUnknownSource_Throws()
     {
         var user = new InMemorySettingsSource("User");
 
@@ -310,7 +310,53 @@ public sealed class SettingsResolutionTests
             .WithDefaultOrder("User", "Machine", "GroupPolicy")
             .Build();
 
-        Assert.Throws<ArgumentException>(() => manager.Save(s => s.FontSize, 18, "DoesNotExist"));
+        Assert.Throws<ArgumentException>(() => manager.Edit("DoesNotExist", edit => edit.Set(s => s.FontSize, 18)));
+    }
+
+    [Fact]
+    public void Edit_AppliesMultipleChanges_AndRefreshesCurrentOnce()
+    {
+        var user = new InMemorySettingsSource("User");
+        var machine = new InMemorySettingsSource("Machine");
+        var groupPolicy = new InMemorySettingsSource("GroupPolicy");
+        var manager = new SettingsManagerBuilder<SampleSettings>()
+            .AddSource("User", user)
+            .AddSource("Machine", machine)
+            .AddSource("GroupPolicy", groupPolicy)
+            .WithDefaultOrder("User", "Machine", "GroupPolicy")
+            .Build();
+        var changeCount = 0;
+        manager.SettingsChanged += (_, _) => changeCount++;
+
+        manager.Edit("Machine", edit =>
+        {
+            edit.Set(s => s.FontSize, 18);
+            edit.Set(s => s.SettingXY, "AES-256");
+        });
+
+        Assert.Equal(18, manager.Current.FontSize);
+        Assert.Equal("AES-256", manager.Current.SettingXY);
+        Assert.Equal(1, changeCount);
+    }
+
+    [Fact]
+    public void Edit_WhenCallbackThrows_DoesNotWriteChanges()
+    {
+        var user = new InMemorySettingsSource("User");
+        var manager = new SettingsManagerBuilder<SampleSettings>()
+            .AddSource("User", user)
+            .AddSource("Machine", new InMemorySettingsSource("Machine"))
+            .AddSource("GroupPolicy", new InMemorySettingsSource("GroupPolicy"))
+            .WithDefaultOrder("User", "Machine", "GroupPolicy")
+            .Build();
+
+        Assert.Throws<InvalidOperationException>(() => manager.Edit("User", edit =>
+        {
+            edit.Set(s => s.FontSize, 18);
+            throw new InvalidOperationException("edit failed");
+        }));
+
+        Assert.False(user.TryRead(nameof(SampleSettings.FontSize), out _));
     }
 
     [Fact]
@@ -580,10 +626,10 @@ public sealed class SettingsResolutionTests
 public sealed class CyclicSettingsA : SettingsBase
 {
     [SourceOrderIf(nameof(B), "User")]
-    public bool A { get; set; }
+    public bool A { get; init; }
 
     [SourceOrderIf(nameof(A), "User")]
-    public bool B { get; set; }
+    public bool B { get; init; }
 }
 
 public sealed class SettingsValidationTests
