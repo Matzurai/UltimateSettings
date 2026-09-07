@@ -8,7 +8,7 @@ CopyTemplateIfMissing("machine.json");
 CopyTemplateIfMissing("domain.xml");
 
 using var manager = new SettingsManagerBuilder<ExampleSettings>()
-    .AddSource("user",    new JsonFileSource("user",    "user.json",    canWrite: true,  watchForChanges: false))
+    .AddSource("user",    new JsonFileSource("user",    "user.json",    canWrite: true,  watchForChanges: true))
     .AddSource("machine", new JsonFileSource("machine", "machine.json", canWrite: true,  watchForChanges: true))
     .AddSource("domain",  new XmlFileSource("domain",   "domain.xml",   canWrite: false, watchForChanges: true))
     .WithValidator((setting, out error)=>{
@@ -118,7 +118,7 @@ static void CopyTemplateIfMissing(string configurationFileName)
 public sealed class ExampleSettings : SettingsBase
 {
     public string valueA { get; init; } = "Default";
-    public MyAtomicSettingsObject ObjectA { get; set; } = new();
+    public MyAtomicSettingsObject ObjectA { get; init; } = new();
     public MySubcattegorySettingsObject Subcategory { get; init; } = new();
 }
 
