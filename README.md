@@ -70,6 +70,11 @@ var manager = new SettingsManagerBuilder<AppSettings>()
 var settings = manager.Current;
 Console.WriteLine($"Font Size: {settings.FontSize}");
 
+// Inspect how values were resolved
+var resolution = manager.CurrentResolution[nameof(AppSettings.FontSize)];
+Console.WriteLine($"Font size source: {resolution.WinningSourceId}");
+Console.WriteLine(manager.GetResolutionDebugDump());
+
 // Watch for changes
 manager.SettingsChanged += (sender, args) => 
 {
