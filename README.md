@@ -30,7 +30,14 @@ Define your settings class by inheriting from `SettingsBase`:
 using UltimateSettings;
 using UltimateSettings.Attributes;
 
-[SourceOrder("User", "Machine")]  // Global default precedence
+public class MyScopes
+{
+    public const string userScope = "user";
+    public const string machineScope = "machine";
+    public const string domainScope = "GroupPolicy";
+}
+
+[SourceOrder("User", "Machine")]  // default precedence for this class.
 public class AppSettings : SettingsBase
 {
     public int FontSize { get; set; } = 12;
@@ -122,6 +129,34 @@ public class AppSettings : SettingsBase
 }
 ```
 
+### `WritableTo`
+
+Configure, to which sources the setting can be written to. When trying to write to any other source, InvalidOperationException is thrown. Defaults to all available sources.
+
+```csharp
+public class AppSettings : SettingsBase
+{
+    [WritableTo("User", "Machine")]
+    public string Item { get; set; } = "";
+}
+```
+
+### `Readonly`
+
+Marks the setting as readonly.
+
+```csharp
+public class AppSettings : SettingsBase
+{
+    [Readonly]
+    public string Item { get; set; } = "";
+}
+```
+
+
+
+
+
 ## Built-in Sources
 
 ### JSON File Source
@@ -131,11 +166,6 @@ Read/write settings from JSON files:
 ```csharp
 var source = new JsonFileSource("User", "config.json");
 ```
-
-**Features:**
-- Automatically creates directories if they don't exist
-- Uses `System.Text.Json` for serialization
-- Supports round-trip reading and writing
 
 ### XML File Source
 
