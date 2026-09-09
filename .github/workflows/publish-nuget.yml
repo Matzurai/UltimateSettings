@@ -69,10 +69,4 @@ jobs:
           "./artifacts/package/UltimateSettings.${{ steps.version.outputs.version }}.nupkg"
           --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}"
           --source https://api.nuget.org/v3/index.json
-
-      - name: Publish symbol package
-        run: >-
-          dotnet nuget push
-          "./artifacts/package/UltimateSettings.${{ steps.version.outputs.version }}.snupkg"
-          --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}"
-          --source https://api.nuget.org/v3/index.json
+          --skip-duplicate

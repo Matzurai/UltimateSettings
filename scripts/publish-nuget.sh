@@ -70,10 +70,7 @@ fi
 
 dotnet nuget push "$PACKAGE_FILE" \
     --api-key "$NUGET_API_KEY" \
-    --source "$PACKAGE_SOURCE"
-
-dotnet nuget push "$SYMBOL_PACKAGE_FILE" \
-    --api-key "$NUGET_API_KEY" \
-    --source "$PACKAGE_SOURCE"
+    --source "$PACKAGE_SOURCE" \
+    --skip-duplicate
 
 echo "Published UltimateSettings $VERSION."
