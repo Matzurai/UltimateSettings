@@ -7,11 +7,13 @@ CopyTemplateIfMissing("user.json");
 CopyTemplateIfMissing("machine.json");
 CopyTemplateIfMissing("domain.xml");
 
+
 using var manager = new SettingsManagerBuilder<ExampleSettings>()
-    .AddSource("user",    new JsonFileSource("user",    "user.json",    canWrite: true,  watchForChanges: true))
-    .AddSource("machine", new JsonFileSource("machine", "machine.json", canWrite: true,  watchForChanges: true))
-    .AddSource("domain",  new XmlFileSource("domain",   "domain.xml",   canWrite: false, watchForChanges: true))
-    .WithValidator((setting, out error)=>{
+    .AddSource("user", new JsonFileSource(MyScopes.userScope, "user.json", canWrite: true, watchForChanges: true))
+    .AddSource("machine", new JsonFileSource(MyScopes.machineScope, "machine.json", canWrite: true, watchForChanges: true))
+    .AddSource("domain", new XmlFileSource(MyScopes.domainScope, "domain.xml", canWrite: false, watchForChanges: true))
+    .WithValidator((setting, out error) =>
+    {
         if (string.IsNullOrWhiteSpace(setting.valueA))
         {
             error = "valueA cannot be empty.";
@@ -46,14 +48,15 @@ using var manager = new SettingsManagerBuilder<ExampleSettings>()
         return true;
     })
     .Build();
+
 manager.Load();
 Console.WriteLine("Settings sources loaded.");
 //log full config
 Console.Write(
-    System.Text.Json.JsonSerializer.Serialize(
-        manager.Current, 
-        new System.Text.Json.JsonSerializerOptions() { WriteIndented = true }
-    ) + Environment.NewLine
+System.Text.Json.JsonSerializer.Serialize(
+    manager.Current,
+    new System.Text.Json.JsonSerializerOptions() { WriteIndented = true }
+) + Environment.NewLine
 );
 
 manager.SettingsChanged += (sender, args) =>
@@ -61,9 +64,9 @@ manager.SettingsChanged += (sender, args) =>
     Console.WriteLine("Settings changed.");
     Console.Write(
         System.Text.Json.JsonSerializer.Serialize(
-            manager.Current, 
+            manager.Current,
             new System.Text.Json.JsonSerializerOptions() { WriteIndented = true }
-        )+Environment.NewLine
+        ) + Environment.NewLine
     );
 };
 
@@ -114,9 +117,18 @@ static void CopyTemplateIfMissing(string configurationFileName)
     File.Copy(templatePath, destinationPath);
 }
 
-[SourceOrder("user", "machine", "domain")]
+
+public class MyScopes
+{
+    public const string userScope = "user";
+    public const string machineScope = "machine";
+    public const string domainScope = "domain";
+}
+
+[SourceOrder(MyScopes.userScope, MyScopes.machineScope, MyScopes.domainScope)]
 public sealed class ExampleSettings : SettingsBase
 {
+
     public string valueA { get; init; } = "Default";
     public MyAtomicSettingsObject ObjectA { get; init; } = new();
     public MySubcattegorySettingsObject Subcategory { get; init; } = new();
@@ -134,7 +146,7 @@ public sealed class MySubcattegorySettingsObject : SettingsBase
 {
     public string valueA { get; init; } = "Default";
 
-    [SourceOrder("machine", "domain")]
+    [SourceOrder(MyScopes.machineScope, MyScopes.domainScope)]
     public string valueB { get; init; } = "Default";
 }
 
