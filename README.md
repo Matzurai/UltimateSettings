@@ -24,6 +24,10 @@ A reusable, strongly typed settings system for .NET that reads from multiple con
 
 ### Basic Setup
 
+Add nuget package:
+
+`dotnet add package UltimateSettings`
+
 Define your settings class by inheriting from `SettingsBase`:
 
 ```csharp
