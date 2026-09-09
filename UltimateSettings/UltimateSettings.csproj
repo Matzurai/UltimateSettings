@@ -4,6 +4,19 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <PackageId>UltimateSettings</PackageId>
+    <Authors>Matzurai</Authors>
+    <Description>A strongly typed .NET settings system with deterministic multi-source resolution, validation, hot reload, and built-in JSON, XML, registry, and in-memory sources.</Description>
+    <PackageTags>settings;configuration;json;xml;registry;hot-reload</PackageTags>
+    <RepositoryUrl>https://github.com/Matzurai/UltimateSettings</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../README.md" Pack="true" PackagePath="README.md" />
+  </ItemGroup>
 
 </Project>
