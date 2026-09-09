@@ -567,3 +567,20 @@ dotnet build -c Release UltimateSettings/UltimateSettings.csproj
 ## Requirements
 
 - .NET 10.0 or later
+
+## Publishing to NuGet
+
+The package version is stored in `Version.txt`. To publish a release, create a local NuGet environment file from the example and add an API key with push permissions:
+
+```bash
+cp .env.nuget.example .env.nuget
+# Edit .env.nuget and set NUGET_API_KEY
+```
+
+Then run the release script:
+
+```bash
+./scripts/publish-nuget.sh
+```
+
+The script packs the library and its symbols, shows the exact version and package files, and asks for confirmation before publishing to nuget.org. The local environment file and generated packages are ignored by git.
