@@ -11,11 +11,23 @@ namespace UltimateSettings.Sources;
 /// defaults to <see cref="WindowsRegistryBackend"/> but can be an <see cref="InMemoryRegistryBackend"/> to
 /// develop or test against on any platform, including ones without a real registry.
 /// </summary>
-public sealed class RegistrySource : ISettingsSource
+public sealed class RegistrySource : IObservableSettingsSource, IDisposable
 {
-    private readonly IRegistryBackend _backend;
+    private static readonly TimeSpan DebounceInterval = TimeSpan.FromMilliseconds(150);
 
-    public RegistrySource(string id, string keyPath, bool canWrite = true, IRegistryBackend? backend = null)
+    private readonly object _lock = new();
+    private readonly IRegistryBackend _backend;
+    private readonly IDisposable? _watchRegistration;
+    private Timer? _debounceTimer;
+    private bool _isDisposed;
+    private int _ignoreNextChange;
+
+    public RegistrySource(
+        string id,
+        string keyPath,
+        bool canWrite = true,
+        bool watchForChanges = false,
+        IRegistryBackend? backend = null)
     {
         if (string.IsNullOrWhiteSpace(id))
         {
@@ -32,7 +44,14 @@ public sealed class RegistrySource : ISettingsSource
         CanWrite = canWrite;
         CanRead = true;
         _backend = backend ?? CreateDefaultBackend();
+
+        if (watchForChanges)
+        {
+            _watchRegistration = _backend.Watch(KeyPath, includeSubkeys: true, OnBackendChanged);
+        }
     }
+
+    public event EventHandler? SourceChanged;
 
     // Intentionally constructible on any OS; only throws if actually used off Windows, matching Microsoft.Win32.Registry's own behavior.
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416", Justification = "Constructing WindowsRegistryBackend is harmless off Windows; only using it throws.")]
@@ -119,6 +138,10 @@ public sealed class RegistrySource : ISettingsSource
             throw new InvalidOperationException($"Source '{Id}' is write-protected.");
         }
 
+        if (_watchRegistration is not null)
+        {
+            Interlocked.Exchange(ref _ignoreNextChange, 1);
+        }
         foreach (var entry in values)
         {
             if (entry.Value is not null && SettingsTypeMetadataCache.IsNestedSettingsType(entry.Value.GetType()))
@@ -130,6 +153,55 @@ public sealed class RegistrySource : ISettingsSource
                 _backend.SetValue(KeyPath, entry.Key, EncodeLeafValue(entry.Value));
             }
         }
+    }
+
+    public void Dispose()
+    {
+        lock (_lock)
+        {
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            _isDisposed = true;
+            _debounceTimer?.Dispose();
+            _debounceTimer = null;
+        }
+
+        _watchRegistration?.Dispose();
+    }
+
+    private void OnBackendChanged()
+    {
+        if (Interlocked.Exchange(ref _ignoreNextChange, 0) != 0)
+        {
+            return;
+        }
+
+        lock (_lock)
+        {
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            _debounceTimer ??= new Timer(OnDebounceElapsed, null, Timeout.Infinite, Timeout.Infinite);
+            _debounceTimer.Change(DebounceInterval, Timeout.InfiniteTimeSpan);
+        }
+    }
+
+    private void OnDebounceElapsed(object? state)
+    {
+        lock (_lock)
+        {
+            if (_isDisposed)
+            {
+                return;
+            }
+        }
+
+        SourceChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private void WriteNestedObject(string subKeyPath, object nestedInstance)

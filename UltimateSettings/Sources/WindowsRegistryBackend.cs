@@ -1,4 +1,5 @@
 using System.Runtime.Versioning;
+using System.Runtime.InteropServices;
 using Microsoft.Win32;
 
 namespace UltimateSettings.Sources;
@@ -57,6 +58,95 @@ public sealed class WindowsRegistryBackend : IRegistryBackend
         {
             subKey.SetValue(valueName, value);
         }
+    }
+
+    public IDisposable Watch(string keyPath, bool includeSubkeys, Action changed)
+    {
+        ArgumentNullException.ThrowIfNull(changed);
+
+        var (hive, subPath) = SplitPath(keyPath);
+        var registryKey = RegistryKey.OpenBaseKey(hive, RegistryView.Default).OpenSubKey(subPath)
+            ?? throw new InvalidOperationException($"Unable to open registry key '{keyPath}' for watching.");
+
+        return new RegistryWatch(registryKey, includeSubkeys, changed);
+    }
+
+    private sealed class RegistryWatch : IDisposable
+    {
+        private const uint ErrorSuccess = 0;
+        private const uint NotifyChangeName = 0x00000001;
+        private const uint NotifyChangeAttributes = 0x00000002;
+        private const uint NotifyChangeLastSet = 0x00000004;
+        private const uint NotifyChangeSecurity = 0x00000008;
+
+        private readonly RegistryKey _registryKey;
+        private readonly bool _includeSubkeys;
+        private readonly Action _changed;
+        private readonly AutoResetEvent _changeEvent = new(false);
+        private readonly CancellationTokenSource _cancellation = new();
+        private readonly Task _watchTask;
+        private int _disposed;
+
+        public RegistryWatch(RegistryKey registryKey, bool includeSubkeys, Action changed)
+        {
+            _registryKey = registryKey;
+            _includeSubkeys = includeSubkeys;
+            _changed = changed;
+            _watchTask = Task.Run(WatchLoop);
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            {
+                return;
+            }
+
+            _cancellation.Cancel();
+            _changeEvent.Set();
+            _watchTask.GetAwaiter().GetResult();
+            _cancellation.Dispose();
+            _changeEvent.Dispose();
+            _registryKey.Dispose();
+        }
+
+        private void WatchLoop()
+        {
+            var waitHandles = new WaitHandle[] { _changeEvent, _cancellation.Token.WaitHandle };
+            while (!_cancellation.IsCancellationRequested)
+            {
+                var result = RegNotifyChangeKeyValue(
+                    _registryKey.Handle.DangerousGetHandle(),
+                    _includeSubkeys,
+                    NotifyChangeName | NotifyChangeAttributes | NotifyChangeLastSet | NotifyChangeSecurity,
+                    _changeEvent.SafeWaitHandle.DangerousGetHandle(),
+                    true);
+
+                if (result != ErrorSuccess)
+                {
+                    throw new InvalidOperationException(
+                        $"Unable to watch registry key. RegNotifyChangeKeyValue returned error code {result}.");
+                }
+
+                if (WaitHandle.WaitAny(waitHandles) == 1)
+                {
+                    return;
+                }
+
+                if (!_cancellation.IsCancellationRequested)
+                {
+                    _changed();
+                }
+            }
+        }
+
+        [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern uint RegNotifyChangeKeyValue(
+            IntPtr keyHandle,
+            [MarshalAs(UnmanagedType.Bool)] bool watchSubtree,
+            uint notifyFilter,
+            IntPtr eventHandle,
+            [MarshalAs(UnmanagedType.Bool)] bool asynchronous);
     }
 
     private static (RegistryHive Hive, string SubPath) SplitPath(string keyPath)

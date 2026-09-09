@@ -185,8 +185,19 @@ var source = new XmlFileSource("Machine", "settings.xml");
 Read/write settings from the Windows Registry (Windows only):
 
 ```csharp
-var source = new RegistrySource("Registry", RegistryHive.LocalMachine, 
-    @"Software\MyCompany\MyApp");
+using var source = new RegistrySource(
+    "Registry",
+    @"HKEY_LOCAL_MACHINE\Software\MyCompany\MyApp");
+```
+
+Enable external-change notifications by setting `watchForChanges` to `true`. The source raises
+`SourceChanged` when the key or one of its descendants changes, and must be disposed when no longer used:
+
+```csharp
+using var watchedSource = new RegistrySource(
+    "Registry",
+    @"HKEY_LOCAL_MACHINE\Software\MyCompany\MyApp",
+    watchForChanges: true);
 ```
 
 ### In-Memory Source

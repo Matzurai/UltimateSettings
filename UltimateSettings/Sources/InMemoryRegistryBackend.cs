@@ -8,6 +8,7 @@ namespace UltimateSettings.Sources;
 public sealed class InMemoryRegistryBackend : IRegistryBackend
 {
     private readonly Dictionary<string, Dictionary<string, object?>> _keys = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, List<Action>> _watchers = new(StringComparer.OrdinalIgnoreCase);
 
     public bool SubKeyExists(string keyPath)
     {
@@ -45,6 +46,57 @@ public sealed class InMemoryRegistryBackend : IRegistryBackend
         else
         {
             values[valueName] = value;
+        }
+    }
+
+    public IDisposable Watch(string keyPath, bool includeSubkeys, Action changed)
+    {
+        ArgumentNullException.ThrowIfNull(changed);
+
+        if (!_watchers.TryGetValue(keyPath, out var callbacks))
+        {
+            callbacks = new List<Action>();
+            _watchers[keyPath] = callbacks;
+        }
+
+        callbacks.Add(changed);
+        return new WatchRegistration(() => callbacks.Remove(changed));
+    }
+
+    public void TriggerChange(string keyPath)
+    {
+        foreach (var entry in _watchers.ToArray())
+        {
+            if (!IsWatchedPath(entry.Key, keyPath))
+            {
+                continue;
+            }
+
+            foreach (var callback in entry.Value.ToArray())
+            {
+                callback();
+            }
+        }
+    }
+
+    private static bool IsWatchedPath(string watchedPath, string changedPath)
+    {
+        return string.Equals(watchedPath, changedPath, StringComparison.OrdinalIgnoreCase)
+            || changedPath.StartsWith(watchedPath + "\\", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class WatchRegistration : IDisposable
+    {
+        private Action? _dispose;
+
+        public WatchRegistration(Action dispose)
+        {
+            _dispose = dispose;
+        }
+
+        public void Dispose()
+        {
+            Interlocked.Exchange(ref _dispose, null)?.Invoke();
         }
     }
 }

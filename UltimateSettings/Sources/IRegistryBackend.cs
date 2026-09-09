@@ -19,4 +19,10 @@ public interface IRegistryBackend
 
     /// <summary>Writes (or, if <paramref name="value"/> is <see langword="null"/>, deletes) a named value in the subkey at the given path.</summary>
     void SetValue(string keyPath, string valueName, object? value);
+
+    /// <summary>
+    /// Watches a registry key and its descendants for value, key, and security changes.
+    /// The returned registration must be disposed to stop watching.
+    /// </summary>
+    IDisposable Watch(string keyPath, bool includeSubkeys, Action changed);
 }

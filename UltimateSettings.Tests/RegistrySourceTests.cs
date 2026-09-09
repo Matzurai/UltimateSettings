@@ -82,6 +82,26 @@ public sealed class RegistrySourceTests
     }
 
     [Fact]
+    public void RegistrySource_WatchForChanges_RaisesSourceChanged()
+    {
+        var backend = new InMemoryRegistryBackend();
+        using var source = new RegistrySource(
+            "Registry",
+            KeyPath,
+            watchForChanges: true,
+            backend: backend);
+        using var eventRaised = new ManualResetEventSlim(false);
+        source.SourceChanged += (_, _) => eventRaised.Set();
+
+        backend.SetValue(KeyPath, "FontSize", 20);
+        backend.TriggerChange(KeyPath);
+
+        Assert.True(eventRaised.Wait(TimeSpan.FromSeconds(3)));
+        Assert.True(source.TryRead("FontSize", typeof(int), out var value));
+        Assert.Equal(20, value);
+    }
+
+    [Fact]
     public void RegistrySource_NestedSettingsObjects_AreStoredAsSubkeysAndResolvedCorrectly()
     {
         var user = new RegistrySource("User", KeyPath + @"\User", backend: new InMemoryRegistryBackend());
