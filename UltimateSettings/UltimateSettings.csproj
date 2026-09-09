@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
     <PackageId>UltimateSettings</PackageId>
     <Authors>Matzurai</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <Description>A strongly typed .NET settings system with deterministic multi-source resolution, validation, hot reload, and built-in JSON, XML, registry, and in-memory sources.</Description>
     <PackageTags>settings;configuration;json;xml;registry;hot-reload</PackageTags>
     <RepositoryUrl>https://github.com/Matzurai/UltimateSettings</RepositoryUrl>
