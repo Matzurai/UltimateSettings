@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# Script to publish the UltimateSettings NuGet package.
+# The repository uses Github Actions for CI/CD and NuGet publishing.
+
 set -euo pipefail
 
 REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

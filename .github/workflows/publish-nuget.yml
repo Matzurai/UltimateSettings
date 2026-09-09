@@ -1,0 +1,78 @@
+name: Publish NuGet package
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Pack and publish
+    runs-on: ubuntu-latest
+    environment: nuget
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Read and validate version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="$(tr -d '[:space:]' < Version.txt)"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid package version in Version.txt: '$version'" >&2
+            exit 1
+          fi
+
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "Tag '$GITHUB_REF_NAME' does not match Version.txt (expected 'v$version')." >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Publishing version $version"
+
+      - name: Restore and test
+        run: dotnet test UltimateSettings.Tests/UltimateSettings.Tests.csproj --configuration Release
+
+      - name: Pack NuGet package
+        run: >-
+          dotnet pack UltimateSettings/UltimateSettings.csproj
+          --configuration Release
+          --output ./artifacts/package
+          -p:PackageVersion=${{ steps.version.outputs.version }}
+
+      - name: NuGet login (OIDC)
+        uses: NuGet/login@v1
+        id: nuget-login
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: Publish package
+        run: >-
+          dotnet nuget push
+          "./artifacts/package/UltimateSettings.${{ steps.version.outputs.version }}.nupkg"
+          --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}"
+          --source https://api.nuget.org/v3/index.json
+
+      - name: Publish symbol package
+        run: >-
+          dotnet nuget push
+          "./artifacts/package/UltimateSettings.${{ steps.version.outputs.version }}.snupkg"
+          --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}"
+          --source https://api.nuget.org/v3/index.json

@@ -570,7 +570,18 @@ dotnet build -c Release UltimateSettings/UltimateSettings.csproj
 
 ## Publishing to NuGet
 
-The package version is stored in `Version.txt`. To publish a release, create a local NuGet environment file from the example and add an API key with push permissions:
+The recommended publishing method is the GitHub Actions workflow in `.github/workflows/publish-nuget.yml`. It uses NuGet trusted publishing with GitHub OpenID Connect (OIDC), so no long-lived NuGet API key is stored in GitHub.
+
+The package version is read from `Version.txt`. To publish version `0.1.0`, commit that version, then create and push the matching tag:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+It can also be started manually with **Actions > Publish NuGet package > Run workflow**.
+
+For local or fallback publishing with a traditional API key, create a local NuGet environment file from the example:
 
 ```bash
 cp .env.nuget.example .env.nuget
@@ -583,4 +594,4 @@ Then run the release script:
 ./scripts/publish-nuget.sh
 ```
 
-The script packs the library and its symbols, shows the exact version and package files, and asks for confirmation before publishing to nuget.org. The local environment file and generated packages are ignored by git.
+The local script packs the library and its symbols, shows the exact version and package files, and asks for confirmation before publishing to nuget.org. The local environment file and generated packages are ignored by git.
